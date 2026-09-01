@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """`MEMORY_API_KEY`、`MEMORY_DB_PATH`。"""
+    """密钥、库路径、付费 embedding、召回模式。均从环境变量 / `.env` 读取。"""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -12,3 +12,8 @@ class Settings(BaseSettings):
 
     memory_api_key: str = ""
     memory_db_path: str = "data/memory.db"
+    embedding_api_key: str = ""
+    embedding_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    embedding_model: str = "qwen3.7-text-embedding"
+    embedding_dim: int = 2560
+    memory_retrieval_mode: str = "hybrid"

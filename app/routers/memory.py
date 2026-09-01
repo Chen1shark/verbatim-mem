@@ -1,4 +1,4 @@
-"""POST /add。"""
+"""POST /add、POST /search。"""
 
 import logging
 import time
@@ -6,7 +6,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.dependencies import require_api_key
-from app.schemas import AddRequest, AddResponse
+from app.schemas import AddRequest, AddResponse, SearchRequest, SearchResponse
 from app.store import ConflictError, MemoryStore
 
 logger = logging.getLogger("verbatim_mem")
@@ -16,6 +16,11 @@ router = APIRouter(tags=["memory"])
 _ADD_RESPONSES = {
     401: {"description": "未授权"},
     409: {"description": "request_id 冲突"},
+    422: {"description": "请求体不合法"},
+}
+
+_SEARCH_RESPONSES = {
+    401: {"description": "未授权"},
     422: {"description": "请求体不合法"},
 }
 
@@ -69,3 +74,34 @@ def add_memory(
         user_id=body.user_id,
         session_id=body.session_id,
     )
+
+
+@router.post(
+    "/search",
+    response_model=SearchResponse,
+    summary="按人召回原话",
+    responses=_SEARCH_RESPONSES,
+)
+@router.post(
+    "/v1/memory/search",
+    response_model=SearchResponse,
+    include_in_schema=False,
+    responses=_SEARCH_RESPONSES,
+)
+def search_memory(
+    request: Request,
+    body: SearchRequest,
+    _: None = Depends(require_api_key),
+) -> SearchResponse:
+    store: MemoryStore = request.app.state.store
+    started = time.perf_counter()
+    hits = store.search(body.user_id, body.query, body.top_k)
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    logger.info(
+        "search user_id=%s top_k=%s hits=%s duration_ms=%s status=200",
+        body.user_id,
+        body.top_k,
+        len(hits),
+        elapsed_ms,
+    )
+    return SearchResponse.model_validate({"data": hits})

@@ -10,6 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.config import Settings
+from app.embeddings import build_embedder
 from app.logging_cfg import setup_logging
 from app.routers import health, memory
 from app.store import MemoryStore
@@ -18,25 +19,36 @@ logger = logging.getLogger("verbatim_mem")
 
 OPENAPI_TAGS = [
     {"name": "health", "description": "探活，不鉴权"},
-    {"name": "memory", "description": "同步写入；200 表示 FTS5 已更新"},
+    {"name": "memory", "description": "Add 同步写入原文与向量；Search 为 FTS5 ∪ FAISS"},
 ]
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     setup_logging()
     resolved = settings or Settings()
-    store = MemoryStore(resolved.memory_db_path)
+    embedder = build_embedder(
+        resolved.embedding_model,
+        api_key=resolved.embedding_api_key,
+        base_url=resolved.embedding_base_url,
+        dim=resolved.embedding_dim,
+    )
+    store = MemoryStore(
+        resolved.memory_db_path,
+        embedder=embedder,
+        retrieval_mode=resolved.memory_retrieval_mode,
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         store.open()
         store.init_schema()
+        store.warmup()
         yield
         store.close()
 
     application = FastAPI(
         title="verbatim-mem",
-        description="AML Add/Search。当前提供 POST /add。",
+        description="AML Add/Search。SQLite 原文 + FTS5 ∪ FAISS，只交原话。",
         version="0.1.0",
         openapi_tags=OPENAPI_TAGS,
         lifespan=lifespan,
