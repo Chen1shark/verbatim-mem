@@ -1,0 +1,12 @@
+#!/bin/sh
+# Reject push to main/master.
+while read local_ref local_oid remote_ref remote_oid
+do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/master)
+      echo "error: do not push main/master (got $remote_ref)" >&2
+      exit 1
+      ;;
+  esac
+done
+exit 0

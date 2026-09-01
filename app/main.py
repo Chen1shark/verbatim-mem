@@ -1,0 +1,79 @@
+"""uvicorn app.main:app --workers 1"""
+
+import logging
+import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+from app.config import Settings
+from app.logging_cfg import setup_logging
+from app.routers import health, memory
+from app.store import MemoryStore
+
+logger = logging.getLogger("verbatim_mem")
+
+OPENAPI_TAGS = [
+    {"name": "health", "description": "探活，不鉴权"},
+    {"name": "memory", "description": "同步写入；200 表示 FTS5 已更新"},
+]
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    setup_logging()
+    resolved = settings or Settings()
+    store = MemoryStore(resolved.memory_db_path)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        store.open()
+        store.init_schema()
+        yield
+        store.close()
+
+    application = FastAPI(
+        title="verbatim-mem",
+        description="AML Add/Search。当前提供 POST /add。",
+        version="0.1.0",
+        openapi_tags=OPENAPI_TAGS,
+        lifespan=lifespan,
+        swagger_ui_parameters={"persistAuthorization": True},
+    )
+    application.state.settings = resolved
+    application.state.store = store
+
+    @application.middleware("http")
+    async def log_http(request: Request, call_next):  # type: ignore[no-untyped-def]
+        started = time.perf_counter()
+        response = await call_next(request)
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        logger.info(
+            "http method=%s path=%s status=%s duration_ms=%s",
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+        )
+        return response
+
+    @application.exception_handler(HTTPException)
+    async def http_exception_handler(
+        _request: Request, exc: HTTPException
+    ) -> JSONResponse:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    @application.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        _request: Request, _exc: RequestValidationError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": "invalid request"})
+
+    application.include_router(health.router)
+    application.include_router(memory.router)
+    return application
+
+
+app = create_app()
