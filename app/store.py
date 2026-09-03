@@ -117,6 +117,91 @@ def ms_to_iso(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+RRF_K = 60
+RECALL_POOL_MIN = 30
+TIME_WEIGHT = 0.15
+TIME_WEIGHT_TEMPORAL = 0.35
+NEIGHBOR_SCORE_DELTA = 0.001
+VECTOR_META_MODEL = "embedding_identity"
+_TEMPORAL_CUES_EN = frozenset(
+    {
+        "now",
+        "currently",
+        "already",
+        "previous",
+        "previously",
+        "latest",
+        "recently",
+        "anymore",
+        "moved",
+        "nowadays",
+    }
+)
+_TEMPORAL_CUES_ZH = ("现在", "已经", "之前", "后来", "目前")
+
+
+def _pool_k(top_k: int) -> int:
+    return min(100, max(top_k * 2, RECALL_POOL_MIN))
+
+
+def _temporal_alpha(query: str) -> float:
+    tokens = {token.lower() for token in _FTS_TOKEN.findall(query)}
+    if tokens & _TEMPORAL_CUES_EN:
+        return TIME_WEIGHT_TEMPORAL
+    if any(cue in query for cue in _TEMPORAL_CUES_ZH):
+        return TIME_WEIGHT_TEMPORAL
+    return TIME_WEIGHT
+
+
+def _hit_from_row(row: sqlite3.Row, score: float) -> dict[str, object]:
+    ts = int(row["timestamp"])
+    return {
+        "id": row["id"],
+        "content": row["content"],
+        "score": score,
+        "created_at": ms_to_iso(ts),
+        "timestamp": ts,
+        "session_id": row["session_id"],
+    }
+
+
+def _public_hit(hit: dict[str, object]) -> dict[str, object]:
+    return {
+        "id": hit["id"],
+        "content": hit["content"],
+        "score": hit["score"],
+        "created_at": hit["created_at"],
+    }
+
+
+def _apply_recency(
+    hits: list[dict[str, object]], query: str
+) -> list[dict[str, object]]:
+    """候选集内把 score、timestamp 做 min-max；α 来自 _temporal_alpha。"""
+    if not hits:
+        return []
+    alpha = _temporal_alpha(query)
+    scores = [float(hit["score"]) for hit in hits]
+    min_score = min(scores)
+    max_score = max(scores)
+    score_span = max_score - min_score
+    stamps = [int(hit["timestamp"]) for hit in hits]
+    min_ts = min(stamps)
+    max_ts = max(stamps)
+    ts_span = max_ts - min_ts
+    ranked: list[dict[str, object]] = []
+    for hit in hits:
+        item = dict(hit)
+        rel = 1.0 if score_span == 0 else (float(hit["score"]) - min_score) / score_span
+        rec = 0.0 if ts_span == 0 else (int(hit["timestamp"]) - min_ts) / ts_span
+        item["score"] = rel + alpha * rec
+        ranked.append(item)
+    ranked.sort(
+        key=lambda item: (-float(item["score"]), -int(item["timestamp"]), str(item["id"]))
+    )
+    return ranked
+
+
 def _rrf_merge(
     fts_hits: list[dict[str, object]],
     dense_hits: list[dict[str, object]],
@@ -163,6 +248,7 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_request_id ON messages(request_id);
+CREATE INDEX IF NOT EXISTS idx_messages_user_session ON messages(user_id, session_id, timestamp);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     content,
@@ -191,10 +277,6 @@ CREATE TABLE IF NOT EXISTS vector_meta (
     value TEXT NOT NULL
 );
 """
-
-RRF_K = 60
-VECTOR_META_MODEL = "embedding_identity"
-
 
 class ConflictError(Exception):
     """相同 request_id、不同 fingerprint。"""
@@ -338,19 +420,23 @@ class MemoryStore:
                 raise
 
     def search(self, user_id: str, query: str, top_k: int) -> list[dict[str, object]]:
-        """该 user_id 下 FTS5 ∪ FAISS，RRF 合并。没有命中返回空列表。"""
+        """该 user_id 下 FTS5 ∪ FAISS，RRF 后 _apply_recency、_expand_neighbors。没有命中返回空列表。"""
+        pool_k = _pool_k(top_k)
         fts_hits: list[dict[str, object]] = []
         dense_hits: list[dict[str, object]] = []
         with self._lock:
             if self.retrieval_mode in {"fts", "hybrid"}:
-                fts_hits = self._search_fts(user_id, query, top_k)
+                fts_hits = self._search_fts(user_id, query, pool_k)
             if self.retrieval_mode in {"dense", "hybrid"}:
-                dense_hits = self._search_dense(user_id, query, top_k)
-        if self.retrieval_mode == "fts":
-            return fts_hits[:top_k]
-        if self.retrieval_mode == "dense":
-            return dense_hits[:top_k]
-        return _rrf_merge(fts_hits, dense_hits, top_k)
+                dense_hits = self._search_dense(user_id, query, pool_k)
+            if self.retrieval_mode == "fts":
+                ranked = fts_hits
+            elif self.retrieval_mode == "dense":
+                ranked = dense_hits
+            else:
+                ranked = _rrf_merge(fts_hits, dense_hits, pool_k)
+            ranked = _apply_recency(ranked, query)
+            return self._expand_neighbors(user_id, ranked, top_k)
 
     def _search_fts(
         self, user_id: str, query: str, top_k: int
@@ -364,6 +450,7 @@ class MemoryStore:
                 m.id,
                 m.content,
                 m.timestamp,
+                m.session_id,
                 bm25(messages_fts) AS rank
             FROM messages_fts
             INNER JOIN messages AS m ON m.rowid = messages_fts.rowid
@@ -386,14 +473,7 @@ class MemoryStore:
         for row in rows:
             rank = row["rank"]
             score = 0.0 if rank is None else -float(rank)
-            hits.append(
-                {
-                    "id": row["id"],
-                    "content": row["content"],
-                    "score": score,
-                    "created_at": ms_to_iso(row["timestamp"]),
-                }
-            )
+            hits.append(_hit_from_row(row, score))
         return hits
 
     def _search_dense(
@@ -417,7 +497,7 @@ class MemoryStore:
         placeholders = ",".join("?" * len(ids))
         rows = conn.execute(
             f"""
-            SELECT id, content, timestamp
+            SELECT id, content, timestamp, session_id
             FROM messages
             WHERE user_id = ? AND id IN ({placeholders})
             """,
@@ -429,15 +509,87 @@ class MemoryStore:
             row = by_id.get(item_id)
             if row is None:
                 continue
-            hits.append(
-                {
-                    "id": row["id"],
-                    "content": row["content"],
-                    "score": score,
-                    "created_at": ms_to_iso(row["timestamp"]),
-                }
-            )
+            hits.append(_hit_from_row(row, score))
         return hits
+
+    def _expand_neighbors(
+        self,
+        user_id: str,
+        hits: list[dict[str, object]],
+        top_k: int,
+    ) -> list[dict[str, object]]:
+        """同一 user_id、session_id，按 timestamp、id 取命中句 ±1。"""
+        if not hits:
+            return []
+        hit_ids = {str(hit["id"]) for hit in hits}
+        session_ids: list[str] = []
+        seen_sessions: set[str] = set()
+        for hit in hits:
+            session_id = str(hit.get("session_id") or "")
+            if not session_id or session_id in seen_sessions:
+                continue
+            seen_sessions.add(session_id)
+            session_ids.append(session_id)
+        by_id: dict[str, dict[str, object]] = {str(hit["id"]): hit for hit in hits}
+        order_by_session: dict[str, list[str]] = {}
+        if session_ids:
+            conn = self._require_conn()
+            placeholders = ",".join("?" * len(session_ids))
+            rows = conn.execute(
+                f"""
+                SELECT id, content, timestamp, session_id
+                FROM messages
+                WHERE user_id = ? AND session_id IN ({placeholders})
+                ORDER BY session_id, timestamp, id
+                """,
+                (user_id, *session_ids),
+            ).fetchall()
+            for row in rows:
+                item_id = str(row["id"])
+                session_id = str(row["session_id"])
+                order_by_session.setdefault(session_id, []).append(item_id)
+                if item_id not in by_id:
+                    by_id[item_id] = _hit_from_row(row, 0.0)
+        index_of: dict[str, int] = {}
+        for ids in order_by_session.values():
+            for index, item_id in enumerate(ids):
+                index_of[item_id] = index
+
+        assembled: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for hit in hits:
+            hit_id = str(hit["id"])
+            session_id = str(hit.get("session_id") or "")
+            ids = order_by_session.get(session_id, [])
+            idx = index_of.get(hit_id)
+            neighbor_ids: list[str] = []
+            if idx is not None:
+                if idx > 0:
+                    neighbor_ids.append(ids[idx - 1])
+                if idx + 1 < len(ids):
+                    neighbor_ids.append(ids[idx + 1])
+            for item_id in (hit_id, *neighbor_ids):
+                if item_id in seen:
+                    continue
+                seen.add(item_id)
+                if item_id == hit_id:
+                    assembled.append(dict(hit))
+                else:
+                    neighbor = dict(by_id[item_id])
+                    neighbor["score"] = float(hit["score"]) - NEIGHBOR_SCORE_DELTA
+                    assembled.append(neighbor)
+
+        while len(assembled) > top_k:
+            drop_at = None
+            for i in range(len(assembled) - 1, -1, -1):
+                if str(assembled[i]["id"]) not in hit_ids:
+                    drop_at = i
+                    break
+            if drop_at is None:
+                assembled = assembled[:top_k]
+                break
+            assembled.pop(drop_at)
+        return [_public_hit(item) for item in assembled]
 
     def _ensure_vector_meta(self) -> None:
         conn = self._require_conn()

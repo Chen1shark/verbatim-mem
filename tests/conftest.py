@@ -44,3 +44,16 @@ def dense_client(db_path: str):
     )
     with TestClient(create_app(dense_settings)) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def fts_client(db_path: str):
+    """与 client 相同，memory_retrieval_mode=fts。"""
+    fts_settings = Settings(
+        memory_api_key=API_KEY,
+        memory_db_path=db_path,
+        embedding_model="hash",
+        memory_retrieval_mode="fts",
+    )
+    with TestClient(create_app(fts_settings)) as test_client:
+        yield test_client

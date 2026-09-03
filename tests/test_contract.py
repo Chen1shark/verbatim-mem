@@ -417,6 +417,159 @@ def test_search_logs_omit_query_and_content(
     assert API_KEY not in text
 
 
+# --- Search：_apply_recency / _expand_neighbors ---
+
+OLD_CAT = "My cat is named Luna."
+NEW_CAT = "My cat is named Mars."
+NEIGHBOR_PREV = "I adopted a cat."
+NEIGHBOR_HIT = "Her name is Luna."
+NEIGHBOR_NEXT = "She likes tuna."
+UNRELATED_NEW = "Today the weather is sunny and warm."
+OTHER_SESSION_DECOY = "The weather is sunny."
+
+
+def test_search_prefers_newer_statement(client: TestClient, db_path: str) -> None:
+    """_apply_recency：新旧两句都在 data 里时新句更前；messages 仍两行。"""
+    client.post("/add", json=_payload(messages=[
+        {"role": "user", "timestamp": 1704067200000, "content": OLD_CAT},
+    ]), headers=_auth())
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:chunk-1",
+            messages=[
+                {"role": "user", "timestamp": 1704153600000, "content": NEW_CAT},
+            ],
+        ),
+        headers=_auth(),
+    )
+    response = client.post("/search", json=_search_body(), headers=_auth())
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert NEW_CAT in contents
+    assert OLD_CAT in contents
+    assert contents.index(NEW_CAT) < contents.index(OLD_CAT)
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 2
+
+
+def test_search_recency_does_not_outrank_unrelated(client: TestClient) -> None:
+    """_apply_recency 相关度为主：SAMPLE_CONTENT 排在无关新句前。"""
+    client.post("/add", json=_payload(), headers=_auth())
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:chunk-1",
+            session_id="other-session",
+            messages=[
+                {
+                    "role": "user",
+                    "timestamp": 1704153600000,
+                    "content": UNRELATED_NEW,
+                }
+            ],
+        ),
+        headers=_auth(),
+    )
+    response = client.post("/search", json=_search_body(), headers=_auth())
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert SAMPLE_CONTENT in contents
+    assert contents[0] == SAMPLE_CONTENT
+    if UNRELATED_NEW in contents:
+        assert contents.index(SAMPLE_CONTENT) < contents.index(UNRELATED_NEW)
+
+
+def test_search_includes_session_neighbors(client: TestClient) -> None:
+    """_expand_neighbors：命中 ±1 且同 session。"""
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": NEIGHBOR_PREV},
+                {"role": "assistant", "timestamp": 1704067201000, "content": NEIGHBOR_HIT},
+                {"role": "user", "timestamp": 1704067202000, "content": NEIGHBOR_NEXT},
+            ]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Luna"),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert NEIGHBOR_HIT in contents
+    assert NEIGHBOR_PREV in contents
+    assert NEIGHBOR_NEXT in contents
+
+
+def test_search_neighbors_skip_other_session(fts_client: TestClient) -> None:
+    """_expand_neighbors 的 SQL 带 session_id，不跨会话拼接。"""
+    fts_client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": NEIGHBOR_PREV},
+                {"role": "assistant", "timestamp": 1704067201000, "content": NEIGHBOR_HIT},
+                {"role": "user", "timestamp": 1704067202000, "content": NEIGHBOR_NEXT},
+            ]
+        ),
+        headers=_auth(),
+    )
+    fts_client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:other",
+            session_id="other-session",
+            messages=[
+                {
+                    "role": "user",
+                    "timestamp": 1704067201500,
+                    "content": OTHER_SESSION_DECOY,
+                }
+            ],
+        ),
+        headers=_auth(),
+    )
+    response = fts_client.post(
+        "/search",
+        json=_search_body(query="Luna"),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert NEIGHBOR_HIT in contents
+    assert NEIGHBOR_PREV in contents
+    assert NEIGHBOR_NEXT in contents
+    assert OTHER_SESSION_DECOY not in contents
+
+
+def test_search_top_k_one_keeps_hit_not_neighbor(client: TestClient) -> None:
+    """top_k=1 时邻句让位，只留命中句。"""
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": NEIGHBOR_PREV},
+                {"role": "assistant", "timestamp": 1704067201000, "content": NEIGHBOR_HIT},
+                {"role": "user", "timestamp": 1704067202000, "content": NEIGHBOR_NEXT},
+            ]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Luna", top_k=1),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert len(data) == 1
+    assert data[0]["content"] == NEIGHBOR_HIT
+
+
 # --- message_vectors / FAISS（HashEmbedder.dim=384）---
 
 
