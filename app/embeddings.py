@@ -18,6 +18,7 @@ _MAX_BATCH = 10
 
 
 def _supports_dimensions(model: str) -> bool:
+    """model 名含 text-embedding 时 embeddings 请求带 dimensions。"""
     name = model.lower()
     return "text-embedding" in name
 
@@ -40,12 +41,15 @@ class HashEmbedder:
     identity = "hash:384"
 
     def encode_docs(self, texts: list[str]) -> np.ndarray:
+        """多句走 _hash_encode，dim=_HASH_DIM。"""
         return _hash_encode(texts, self.dim)
 
     def encode_query(self, text: str) -> np.ndarray:
+        """单句走 _hash_encode。"""
         return _hash_encode([text], self.dim)
 
     def warmup(self) -> None:
+        """HashEmbedder 无外部调用。"""
         return None
 
 
@@ -59,6 +63,7 @@ class OpenAICompatibleEmbedder:
         base_url: str,
         dim: int,
     ) -> None:
+        """绑定 Settings.embedding_model / embedding_api_key / embedding_base_url / embedding_dim。"""
         self.model = model
         self._api_key = api_key.strip()
         self.base_url = base_url.rstrip("/")
@@ -66,17 +71,21 @@ class OpenAICompatibleEmbedder:
         self.identity = f"{self.base_url}|{self.model}|{self.dim}"
 
     def encode_docs(self, texts: list[str]) -> np.ndarray:
+        """多句走 _encode。"""
         return self._encode(texts)
 
     def encode_query(self, text: str) -> np.ndarray:
+        """单句走 _encode。"""
         return self._encode([text])
 
     def warmup(self) -> None:
+        """encode_docs(["ok"]) 探活；缺 EMBEDDING_API_KEY 则失败。"""
         if not self._api_key:
             raise RuntimeError("EMBEDDING_API_KEY is not set")
         self.encode_docs(["ok"])
 
     def _encode(self, texts: list[str]) -> np.ndarray:
+        """按 _MAX_BATCH 切块调用 _encode_batch 再 vstack。"""
         if not texts:
             return np.zeros((0, self.dim), dtype=np.float32)
         batches = [
@@ -86,6 +95,7 @@ class OpenAICompatibleEmbedder:
         return np.vstack(batches)
 
     def _encode_batch(self, texts: list[str]) -> np.ndarray:
+        """POST {base_url}/embeddings，校验 dim 后 L2 归一化。"""
         if not texts:
             return np.zeros((0, self.dim), dtype=np.float32)
         if not self._api_key:
@@ -124,6 +134,7 @@ def build_embedder(
     base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
     dim: int = 2560,
 ) -> Embedder:
+    """model_name 为 hash/test/off 返回 HashEmbedder，否则 OpenAICompatibleEmbedder。"""
     name = (model_name or "hash").strip()
     if name.lower() in {"hash", "test", "off"}:
         return HashEmbedder()
@@ -136,6 +147,7 @@ def build_embedder(
 
 
 def _hash_encode(texts: list[str], dim: int) -> np.ndarray:
+    """按 token crc32 累加词袋并 L2 归一化，给 HashEmbedder 用。"""
     matrix = np.zeros((len(texts), dim), dtype=np.float32)
     for row, text in enumerate(texts):
         for token in _TOKEN.findall(text.lower()):

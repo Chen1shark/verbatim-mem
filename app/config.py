@@ -1,3 +1,5 @@
+"""Settings：MEMORY_API_KEY、MEMORY_DB_PATH、embedding、MEMORY_RETRIEVAL_MODE。"""
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

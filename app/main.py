@@ -24,6 +24,7 @@ OPENAPI_TAGS = [
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
+    """组装 Settings、build_embedder、MemoryStore，挂 /health /add /search。"""
     setup_logging()
     resolved = settings or Settings()
     embedder = build_embedder(
@@ -40,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        """MemoryStore.open → init_schema → warmup；退出 close。"""
         store.open()
         store.init_schema()
         store.warmup()
@@ -59,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.middleware("http")
     async def log_http(request: Request, call_next):  # type: ignore[no-untyped-def]
+        """打 method / path / status / duration_ms，不含 query 与 content。"""
         started = time.perf_counter()
         response = await call_next(request)
         elapsed_ms = int((time.perf_counter() - started) * 1000)
@@ -75,12 +78,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def http_exception_handler(
         _request: Request, exc: HTTPException
     ) -> JSONResponse:
+        """HTTPException → {"detail": ...}。"""
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
     @application.exception_handler(RequestValidationError)
     async def validation_exception_handler(
         _request: Request, _exc: RequestValidationError
     ) -> JSONResponse:
+        """RequestValidationError → 422 {"detail": "invalid request"}。"""
         return JSONResponse(status_code=422, content={"detail": "invalid request"})
 
     application.include_router(health.router)

@@ -114,6 +114,7 @@ def fts_match_query(raw: str) -> str | None:
 
 
 def ms_to_iso(ms: int) -> str:
+    """messages.timestamp 毫秒 → SearchItem.created_at 的 UTC ISO-8601。"""
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -141,10 +142,12 @@ _TEMPORAL_CUES_ZH = ("现在", "已经", "之前", "后来", "目前")
 
 
 def _pool_k(top_k: int) -> int:
+    """Search 召回池：min(100, max(top_k * 2, RECALL_POOL_MIN))，供 FTS LIMIT / FAISS take / RRF。"""
     return min(100, max(top_k * 2, RECALL_POOL_MIN))
 
 
 def _temporal_alpha(query: str) -> float:
+    """query 命中 _TEMPORAL_CUES_EN 或 _TEMPORAL_CUES_ZH 则 TIME_WEIGHT_TEMPORAL，否则 TIME_WEIGHT。"""
     tokens = {token.lower() for token in _FTS_TOKEN.findall(query)}
     if tokens & _TEMPORAL_CUES_EN:
         return TIME_WEIGHT_TEMPORAL
@@ -154,6 +157,7 @@ def _temporal_alpha(query: str) -> float:
 
 
 def _hit_from_row(row: sqlite3.Row, score: float) -> dict[str, object]:
+    """messages 行转内部 hit：id / content / score / created_at / timestamp / session_id。"""
     ts = int(row["timestamp"])
     return {
         "id": row["id"],
@@ -166,6 +170,7 @@ def _hit_from_row(row: sqlite3.Row, score: float) -> dict[str, object]:
 
 
 def _public_hit(hit: dict[str, object]) -> dict[str, object]:
+    """去掉内部 timestamp、session_id，只留 SearchItem 的 id / content / score / created_at。"""
     return {
         "id": hit["id"],
         "content": hit["content"],
@@ -177,7 +182,7 @@ def _public_hit(hit: dict[str, object]) -> dict[str, object]:
 def _apply_recency(
     hits: list[dict[str, object]], query: str
 ) -> list[dict[str, object]]:
-    """候选集内把 score、timestamp 做 min-max；α 来自 _temporal_alpha。"""
+    """候选集内对 score、timestamp 做 min-max；α 来自 _temporal_alpha，再按 score、timestamp、id 排序。"""
     if not hits:
         return []
     alpha = _temporal_alpha(query)
@@ -207,6 +212,7 @@ def _rrf_merge(
     dense_hits: list[dict[str, object]],
     top_k: int,
 ) -> list[dict[str, object]]:
+    """FTS 与 FAISS 两路按 1/(RRF_K+rank) 合并去重，截断为 top_k。"""
     scores: dict[str, float] = {}
     by_id: dict[str, dict[str, object]] = {}
     for rank, hit in enumerate(fts_hits, start=1):
@@ -309,6 +315,7 @@ class MemoryStore:
         embedder: Embedder,
         retrieval_mode: str = "hybrid",
     ) -> None:
+        """绑定 MEMORY_DB_PATH、Embedder、MEMORY_RETRIEVAL_MODE。"""
         self.db_path = db_path
         self._embedder = embedder
         self.retrieval_mode = retrieval_mode.strip().lower() or "hybrid"
@@ -317,6 +324,7 @@ class MemoryStore:
         self._faiss: dict[str, UserFaissIndex] = {}
 
     def open(self) -> None:
+        """打开 sqlite3：WAL、busy_timeout=5000、foreign_keys=ON，写入 _conn。"""
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path, check_same_thread=False, isolation_level=None)
         conn.row_factory = sqlite3.Row
@@ -326,12 +334,14 @@ class MemoryStore:
         self._conn = conn
 
     def close(self) -> None:
+        """关闭 _conn，清空按 user_id 分桶的 _faiss。"""
         if self._conn is not None:
             self._conn.close()
             self._conn = None
         self._faiss.clear()
 
     def init_schema(self) -> None:
+        """执行 SCHEMA_SQL，再 _ensure_vector_meta、_backfill_vectors、_rebuild_faiss。"""
         conn = self._require_conn()
         conn.executescript(SCHEMA_SQL)
         self._ensure_vector_meta()
@@ -339,13 +349,15 @@ class MemoryStore:
         self._rebuild_faiss()
 
     def warmup(self) -> None:
+        """调用 Embedder.warmup。"""
         self._embedder.warmup()
 
     def ping(self) -> None:
+        """对 _conn 执行 SELECT 1，给 GET /health 探活。"""
         self._require_conn().execute("SELECT 1").fetchone()
 
     def add(self, body: AddRequest) -> str:
-        """写入 messages 与 FTS5。返回 created 或 duplicate。冲突抛 ConflictError。"""
+        """写入 requests / messages / FTS5 / message_vectors，提交后 _index_vectors。返回 created 或 duplicate。冲突抛 ConflictError。"""
         content_hash = fingerprint(body.user_id, body.session_id, body.messages)
         now = int(time.time() * 1000)
         conn = self._require_conn()
@@ -441,6 +453,7 @@ class MemoryStore:
     def _search_fts(
         self, user_id: str, query: str, top_k: int
     ) -> list[dict[str, object]]:
+        """messages_fts MATCH 且 user_id 双条件过滤，按 bm25 取 top_k，score=-bm25。"""
         match = fts_match_query(query)
         if match is None:
             return []
@@ -479,6 +492,7 @@ class MemoryStore:
     def _search_dense(
         self, user_id: str, query: str, top_k: int
     ) -> list[dict[str, object]]:
+        """该 user_id 的 UserFaissIndex 近邻，再 _hits_for_ids 回 messages。"""
         bucket = self._faiss.get(user_id)
         if bucket is None or bucket.index.ntotal == 0:
             return []
@@ -490,6 +504,7 @@ class MemoryStore:
     def _hits_for_ids(
         self, user_id: str, pairs: list[tuple[str, float]]
     ) -> list[dict[str, object]]:
+        """FAISS id 回表：WHERE user_id = ? AND id IN (...)，拼 _hit_from_row。"""
         if not pairs:
             return []
         conn = self._require_conn()
@@ -518,7 +533,7 @@ class MemoryStore:
         hits: list[dict[str, object]],
         top_k: int,
     ) -> list[dict[str, object]]:
-        """同一 user_id、session_id，按 timestamp、id 取命中句 ±1。"""
+        """同一 user_id、session_id，ORDER BY timestamp, id 取命中 ±1；超 top_k 先丢邻句，再 _public_hit。"""
         if not hits:
             return []
         hit_ids = {str(hit["id"]) for hit in hits}
@@ -592,6 +607,7 @@ class MemoryStore:
         return [_public_hit(item) for item in assembled]
 
     def _ensure_vector_meta(self) -> None:
+        """读写 vector_meta.embedding_identity；与 Embedder.identity 不一致则拒绝启动。"""
         conn = self._require_conn()
         expected = self._embedder.identity
         row = conn.execute(
@@ -611,6 +627,7 @@ class MemoryStore:
             )
 
     def _backfill_vectors(self) -> None:
+        """messages 缺 message_vectors 的行走 Embedder.encode_docs，再 _write_vectors。"""
         conn = self._require_conn()
         missing = conn.execute(
             """
@@ -643,6 +660,7 @@ class MemoryStore:
             raise
 
     def _rebuild_faiss(self) -> None:
+        """从 message_vectors 按 user_id 重建 _faiss 里的 UserFaissIndex。"""
         self._faiss.clear()
         conn = self._require_conn()
         rows = conn.execute(
@@ -667,6 +685,7 @@ class MemoryStore:
         ids: list[str],
         vectors: np.ndarray,
     ) -> None:
+        """INSERT message_vectors（id, user_id, dim, embedding BLOB）。"""
         matrix = np.ascontiguousarray(vectors, dtype=np.float32)
         if matrix.ndim == 1:
             matrix = matrix.reshape(1, -1)
@@ -680,6 +699,7 @@ class MemoryStore:
             )
 
     def _index_vectors(self, user_id: str, ids: list[str], vectors: np.ndarray) -> None:
+        """把向量写入该 user_id 的 UserFaissIndex。"""
         bucket = self._faiss.get(user_id)
         if bucket is None:
             bucket = UserFaissIndex(self._embedder.dim)
@@ -687,6 +707,7 @@ class MemoryStore:
         bucket.add(ids, vectors)
 
     def _require_conn(self) -> sqlite3.Connection:
+        """返回已 open 的 sqlite3.Connection。"""
         if self._conn is None:
             raise RuntimeError("store is not open")
         return self._conn

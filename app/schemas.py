@@ -1,7 +1,11 @@
+"""AddRequest / SearchRequest / SearchItem 契约。"""
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class Message(BaseModel):
+    """AddRequest.messages 一条：role / timestamp / content。"""
+
     model_config = ConfigDict(extra="ignore")
 
     role: str = Field(min_length=1, description="user / assistant 等", examples=["user"])
@@ -10,6 +14,8 @@ class Message(BaseModel):
 
 
 class AddRequest(BaseModel):
+    """POST /add 体：request_id / user_id / session_id / messages。"""
+
     model_config = ConfigDict(extra="ignore")
 
     request_id: str = Field(
@@ -31,6 +37,8 @@ class AddRequest(BaseModel):
 
 
 class AddResponse(BaseModel):
+    """POST /add 200：success / request_id / user_id / session_id。"""
+
     success: bool = Field(default=True, description="已提交或幂等命中")
     request_id: str
     user_id: str
@@ -38,6 +46,8 @@ class AddResponse(BaseModel):
 
 
 class SearchRequest(BaseModel):
+    """POST /search 体：query / user_id / top_k / options。"""
+
     model_config = ConfigDict(extra="ignore")
 
     query: str = Field(
@@ -58,6 +68,8 @@ class SearchRequest(BaseModel):
 
 
 class SearchItem(BaseModel):
+    """SearchResponse.data 一条：id / content / score / created_at。"""
+
     id: str
     content: str = Field(description="入库原话，不摘要、不答题")
     score: float
@@ -65,4 +77,6 @@ class SearchItem(BaseModel):
 
 
 class SearchResponse(BaseModel):
+    """POST /search 200：data 为 SearchItem 列表。"""
+
     data: list[SearchItem]

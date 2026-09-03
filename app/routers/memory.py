@@ -42,6 +42,7 @@ def add_memory(
     body: AddRequest,
     _: None = Depends(require_api_key),
 ) -> AddResponse:
+    """POST /add：MemoryStore.add(AddRequest)；ConflictError → 409。"""
     store: MemoryStore = request.app.state.store
     started = time.perf_counter()
     try:
@@ -93,6 +94,7 @@ def search_memory(
     body: SearchRequest,
     _: None = Depends(require_api_key),
 ) -> SearchResponse:
+    """POST /search：MemoryStore.search(user_id, query, top_k) → SearchResponse.data。"""
     store: MemoryStore = request.app.state.store
     started = time.perf_counter()
     hits = store.search(body.user_id, body.query, body.top_k)
