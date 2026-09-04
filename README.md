@@ -2,7 +2,7 @@
 
 [Agent Memory Leaderboard](https://agentmemoryleaderboard.ai/) 文本赛道的记忆服务：提供 `Add` / `Search`，只交对话原话，不生成答案。
 
-当前进度：`GET /health`、`POST /add`、`POST /search` 可用。Search 为 FTS5 ∪ FAISS，只返回该用户下的原话。
+当前进度：`GET /health`、`POST /add`、`POST /search` 可用。Search 为 FTS5 ∪ 邻句块 ∪ FAISS，加权 RRF 后按问句实词覆盖 / 数字 / 专名 / 选项 / 人设 / 纠错加分，再按未覆盖问句词补证据、时间加分，只返回该用户下的原话。对照公开技术说明自行实现，未复制其它参赛仓库代码。
 
 ## 启动
 
@@ -29,6 +29,27 @@ Linux / macOS 把激活和复制命令换成：
 source .venv/bin/activate
 cp .env.example .env
 ```
+
+可选 CrossEncoder 重排（默认关闭）：
+
+```powershell
+pip install -r requirements-rerank.txt
+```
+
+在 `.env` 设置 `MEMORY_RERANK_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2`。
+
+## Docker
+
+```powershell
+docker build -t verbatim-mem .
+docker run --rm -p 8000:8000 -v verbatim-mem-data:/data `
+  -e MEMORY_API_KEY=changeme `
+  -e EMBEDDING_API_KEY=your-key `
+  -e MEMORY_DB_PATH=/data/memory.db `
+  verbatim-mem
+```
+
+容器内 `uvicorn` 监听 `0.0.0.0:8000`，`--workers 1`。`GET /health` 不鉴权，返回 2xx 即视为存活。公网评测请用 HTTPS 反代到该端口。
 
 ## 用 Swagger 查看和调试
 

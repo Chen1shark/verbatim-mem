@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """密钥、库路径、付费 embedding、召回模式。均从环境变量 / `.env` 读取。"""
+    """密钥、库路径、付费 embedding、召回模式、可选 MEMORY_RERANK_MODEL。"""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -19,3 +19,4 @@ class Settings(BaseSettings):
     embedding_model: str = "qwen3.7-text-embedding"
     embedding_dim: int = 2560
     memory_retrieval_mode: str = "hybrid"
+    memory_rerank_model: str = ""

@@ -94,10 +94,10 @@ def search_memory(
     body: SearchRequest,
     _: None = Depends(require_api_key),
 ) -> SearchResponse:
-    """POST /search：MemoryStore.search(user_id, query, top_k) → SearchResponse.data。"""
+    """POST /search：MemoryStore.search(user_id, query, top_k, options) → SearchResponse.data。"""
     store: MemoryStore = request.app.state.store
     started = time.perf_counter()
-    hits = store.search(body.user_id, body.query, body.top_k)
+    hits = store.search(body.user_id, body.query, body.top_k, body.options)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     logger.info(
         "search user_id=%s top_k=%s hits=%s duration_ms=%s status=200",

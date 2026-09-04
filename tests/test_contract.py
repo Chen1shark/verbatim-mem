@@ -369,7 +369,7 @@ def test_search_missing_field_is_422(client: TestClient) -> None:
 
 
 def test_search_ignores_unknown_fields(client: TestClient) -> None:
-    """SearchRequest extra=ignore；options 当前不参与召回。"""
+    """SearchRequest extra=ignore；options 参与召回但仍 200。"""
     client.post("/add", json=_payload(), headers=_auth())
     response = client.post(
         "/search",
@@ -570,6 +570,329 @@ def test_search_top_k_one_keeps_hit_not_neighbor(client: TestClient) -> None:
     assert data[0]["content"] == NEIGHBOR_HIT
 
 
+NEIGHBOR_FAR_PREV = "I went to the shelter."
+NEIGHBOR_FAR_NEXT = "We bought a scratching post."
+
+
+def test_search_includes_plus_minus_two_neighbors(client: TestClient) -> None:
+    """_expand_neighbors：NEIGHBOR_WINDOW=2，命中 ±2 同 session。"""
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": NEIGHBOR_FAR_PREV},
+                {"role": "user", "timestamp": 1704067201000, "content": NEIGHBOR_PREV},
+                {"role": "assistant", "timestamp": 1704067202000, "content": NEIGHBOR_HIT},
+                {"role": "user", "timestamp": 1704067203000, "content": NEIGHBOR_NEXT},
+                {"role": "user", "timestamp": 1704067204000, "content": NEIGHBOR_FAR_NEXT},
+            ]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Luna", top_k=5),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert NEIGHBOR_HIT in contents
+    assert NEIGHBOR_PREV in contents
+    assert NEIGHBOR_NEXT in contents
+    assert NEIGHBOR_FAR_PREV in contents
+    assert NEIGHBOR_FAR_NEXT in contents
+
+
+def test_search_top_k_three_keeps_hit_first(client: TestClient) -> None:
+    """top_k=3 时精排命中句在前，条数为 3。"""
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": NEIGHBOR_FAR_PREV},
+                {"role": "user", "timestamp": 1704067201000, "content": NEIGHBOR_PREV},
+                {"role": "assistant", "timestamp": 1704067202000, "content": NEIGHBOR_HIT},
+                {"role": "user", "timestamp": 1704067203000, "content": NEIGHBOR_NEXT},
+                {"role": "user", "timestamp": 1704067204000, "content": NEIGHBOR_FAR_NEXT},
+            ]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Luna", top_k=3),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert len(contents) == 3
+    assert contents[0] == NEIGHBOR_HIT
+
+
+def test_search_prefers_older_when_previously(client: TestClient) -> None:
+    """_temporal_alpha 负值：query 含 previously 时 OLD_CAT 排在 NEW_CAT 前。"""
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": OLD_CAT}]
+        ),
+        headers=_auth(),
+    )
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:chunk-1",
+            messages=[{"role": "user", "timestamp": 1704153600000, "content": NEW_CAT}],
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="What was my cat named previously?"),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert OLD_CAT in contents
+    assert NEW_CAT in contents
+    assert contents.index(OLD_CAT) < contents.index(NEW_CAT)
+
+
+def test_search_options_boost_matching_content(client: TestClient) -> None:
+    """SearchRequest.options 含 Luna 时 SAMPLE_CONTENT 排在 Mars 句前。"""
+    client.post("/add", json=_payload(), headers=_auth())
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:chunk-1",
+            messages=[
+                {
+                    "role": "user",
+                    "timestamp": 1704067201000,
+                    "content": "I adopted a cat named Mars.",
+                }
+            ],
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(
+            query="What is the name of my cat?",
+            options=["A. Luna", "B. Rover"],
+        ),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert SAMPLE_CONTENT in contents
+    assert "I adopted a cat named Mars." in contents
+    assert contents.index(SAMPLE_CONTENT) < contents.index(
+        "I adopted a cat named Mars."
+    )
+
+
+def test_add_missing_timestamp_is_200(client: TestClient, db_path: str) -> None:
+    """Message.timestamp 缺省仍写入；messages.timestamp=0。"""
+    body = _payload()
+    del body["messages"][0]["timestamp"]
+    response = client.post("/add", json=body, headers=_auth())
+    assert response.status_code == 200
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT timestamp, content FROM messages").fetchone()
+    assert row is not None
+    assert row[0] == 0
+    assert row[1] == SAMPLE_CONTENT
+
+
+def test_add_writes_session_blocks(client: TestClient, db_path: str) -> None:
+    """两条 messages 写入一条 message_blocks_fts。"""
+    body = _payload(
+        messages=[
+            {
+                "role": "user",
+                "timestamp": 1704067200000,
+                "content": SAMPLE_CONTENT,
+            },
+            {
+                "role": "assistant",
+                "timestamp": 1704067201000,
+                "content": "Luna is a lovely name.",
+            },
+        ]
+    )
+    response = client.post("/add", json=body, headers=_auth())
+    assert response.status_code == 200
+    with sqlite3.connect(db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM message_blocks_fts").fetchone()[0]
+    assert count == 1
+
+
+def test_add_session_blocks_appended_chunk(client: TestClient, db_path: str) -> None:
+    """同 session 第二 chunk 后 message_blocks_fts 含 2 句窗与 3 句窗。"""
+    first = _payload(
+        messages=[
+            {
+                "role": "user",
+                "timestamp": 1704067200000,
+                "content": SAMPLE_CONTENT,
+            },
+            {
+                "role": "assistant",
+                "timestamp": 1704067201000,
+                "content": "Luna is a lovely name.",
+            },
+        ]
+    )
+    second = _payload(
+        request_id="eval:run:dataset:conv-0:chunk-1",
+        messages=[
+            {
+                "role": "user",
+                "timestamp": 1704067202000,
+                "content": "Luna likes tuna.",
+            }
+        ],
+    )
+    assert client.post("/add", json=first, headers=_auth()).status_code == 200
+    assert client.post("/add", json=second, headers=_auth()).status_code == 200
+    with sqlite3.connect(db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM message_blocks_fts").fetchone()[0]
+        pairs = {
+            (row[0], row[1])
+            for row in conn.execute("SELECT left_id, right_id FROM message_blocks_fts")
+        }
+    assert count == 3
+    assert pairs == {
+        (
+            "eval:run:dataset:conv-0:chunk-0:0",
+            "eval:run:dataset:conv-0:chunk-0:1",
+        ),
+        (
+            "eval:run:dataset:conv-0:chunk-0:1",
+            "eval:run:dataset:conv-0:chunk-1:0",
+        ),
+        (
+            "eval:run:dataset:conv-0:chunk-0:0",
+            "eval:run:dataset:conv-0:chunk-1:0",
+        ),
+    }
+
+
+def test_add_session_blocks_middle_insert(client: TestClient, db_path: str) -> None:
+    """后写入中间 timestamp 时删掉旧邻接对，左右与新句成 2 句窗，两端成 3 句窗。"""
+    first = _payload(
+        messages=[
+            {
+                "role": "user",
+                "timestamp": 1704067200000,
+                "content": SAMPLE_CONTENT,
+            },
+            {
+                "role": "assistant",
+                "timestamp": 1704067202000,
+                "content": "Luna likes tuna.",
+            },
+        ]
+    )
+    middle = _payload(
+        request_id="eval:run:dataset:conv-0:chunk-1",
+        messages=[
+            {
+                "role": "assistant",
+                "timestamp": 1704067201000,
+                "content": "Luna is a lovely name.",
+            }
+        ],
+    )
+    assert client.post("/add", json=first, headers=_auth()).status_code == 200
+    assert client.post("/add", json=middle, headers=_auth()).status_code == 200
+    with sqlite3.connect(db_path) as conn:
+        pairs = {
+            (row[0], row[1])
+            for row in conn.execute("SELECT left_id, right_id FROM message_blocks_fts")
+        }
+    assert pairs == {
+        (
+            "eval:run:dataset:conv-0:chunk-0:0",
+            "eval:run:dataset:conv-0:chunk-1:0",
+        ),
+        (
+            "eval:run:dataset:conv-0:chunk-1:0",
+            "eval:run:dataset:conv-0:chunk-0:1",
+        ),
+        (
+            "eval:run:dataset:conv-0:chunk-0:0",
+            "eval:run:dataset:conv-0:chunk-0:1",
+        ),
+    }
+
+
+def test_add_too_many_messages_is_422(client: TestClient) -> None:
+    """AddRequest.messages max_length=500。"""
+    messages = [
+        {"role": "user", "timestamp": 1704067200000, "content": "x"} for _ in range(501)
+    ]
+    response = client.post(
+        "/add",
+        json=_payload(messages=messages),
+        headers=_auth(),
+    )
+    assert response.status_code == 422
+
+
+def test_add_overlong_content_is_422(client: TestClient) -> None:
+    """Message.content max_length=100_000。"""
+    response = client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {
+                    "role": "user",
+                    "timestamp": 1704067200000,
+                    "content": "x" * 100_001,
+                }
+            ]
+        ),
+        headers=_auth(),
+    )
+    assert response.status_code == 422
+
+
+def test_add_embedding_failure_does_not_persist(
+    client: TestClient, db_path: str
+) -> None:
+    """encode_docs 抛 RuntimeError → 500；requests / messages 仍为空。"""
+
+    def boom(_texts: list[str]):
+        raise RuntimeError("embedding request failed")
+
+    client.app.state.store._embedder.encode_docs = boom  # type: ignore[method-assign]
+    response = client.post("/add", json=_payload(), headers=_auth())
+    assert response.status_code == 500
+    assert SAMPLE_CONTENT not in response.text
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM requests").fetchone()[0] == 0
+
+
+def test_add_embedding_shape_mismatch_does_not_persist(
+    client: TestClient, db_path: str
+) -> None:
+    """encode_docs 行数对不上 messages → 500；requests / messages 仍为空。"""
+    import numpy as np
+
+    def bad(_texts: list[str]):
+        return np.zeros((2, 384), dtype=np.float32)
+
+    client.app.state.store._embedder.encode_docs = bad  # type: ignore[method-assign]
+    response = client.post("/add", json=_payload(), headers=_auth())
+    assert response.status_code == 500
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM requests").fetchone()[0] == 0
+
+
 # --- message_vectors / FAISS（HashEmbedder.dim=384）---
 
 
@@ -671,3 +994,236 @@ def test_vectors_survive_reopen(db_path: str) -> None:
         )
     assert response.status_code == 200
     assert response.json()["data"][0]["content"] == SAMPLE_CONTENT
+
+
+CALLED_CAT = "I have a cat called Luna."
+NAMED_DOG = "I also have a dog named Mars."
+MOVE_2019 = "I moved to Boston in 2019."
+MOVE_2021 = "I moved to Seattle in 2021."
+MULTI_A = "My coworker is named Dana."
+MULTI_B = "We went to a conference together."
+MULTI_C = "The conference was in Lisbon."
+
+
+def test_add_writes_clues_for_called(client: TestClient, db_path: str) -> None:
+    """index_clues：called → name 写入 messages.clues；Search content 仍是原话。"""
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": CALLED_CAT}]
+        ),
+        headers=_auth(),
+    )
+    with sqlite3.connect(db_path) as conn:
+        clues = conn.execute("SELECT clues FROM messages").fetchone()[0]
+    assert "name" in clues.split()
+    response = client.post("/search", json=_search_body(), headers=_auth())
+    assert response.status_code == 200
+    assert response.json()["data"][0]["content"] == CALLED_CAT
+    assert "name" not in response.json()["data"][0]["content"].split()
+
+
+def test_search_name_query_prefers_called_cat(client: TestClient) -> None:
+    """同义词 name/called：问猫名时 CALLED_CAT 排在 NAMED_DOG 前。"""
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": CALLED_CAT}]
+        ),
+        headers=_auth(),
+    )
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:chunk-1",
+            messages=[{"role": "user", "timestamp": 1704067201000, "content": NAMED_DOG}],
+        ),
+        headers=_auth(),
+    )
+    response = client.post("/search", json=_search_body(), headers=_auth())
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert CALLED_CAT in contents
+    assert NAMED_DOG in contents
+    assert contents.index(CALLED_CAT) < contents.index(NAMED_DOG)
+
+
+def test_search_year_prefers_matching_move(client: TestClient) -> None:
+    """_apply_numeric：问 2021 时 MOVE_2021 排在较新的 MOVE_2019 句前。"""
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": MOVE_2021}]
+        ),
+        headers=_auth(),
+    )
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:chunk-1",
+            messages=[{"role": "user", "timestamp": 1704153600000, "content": MOVE_2019}],
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Where did I move in 2021?"),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert MOVE_2021 in contents
+    assert MOVE_2019 in contents
+    assert contents.index(MOVE_2021) < contents.index(MOVE_2019)
+
+
+def test_search_multihop_triple_window(client: TestClient) -> None:
+    """三句窗：Dana 与 Lisbon 分在首尾句时，两句都能进 data。"""
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": MULTI_A},
+                {"role": "assistant", "timestamp": 1704067201000, "content": MULTI_B},
+                {"role": "user", "timestamp": 1704067202000, "content": MULTI_C},
+            ]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Where did Dana go to a conference?", top_k=5),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert MULTI_A in contents
+    assert MULTI_C in contents
+
+
+PREF_LIKE = "I like jazz music."
+PREF_FACT = "Jazz originated in New Orleans."
+DANA_WORK = "Dana works in Lisbon."
+ALEX_WORK = "Alex works in Porto."
+LIVE_OLD = "I live in Boston."
+LIVE_ACTUALLY = "I actually live in Seattle instead."
+TWO_HOP_A = "I adopted a cat named Luna."
+TWO_HOP_B = "Luna is my cat."
+TWO_HOP_C = "My cat Luna likes tuna."
+TWO_HOP_D = "The conference was in Lisbon."
+
+
+def test_search_prefers_first_person_like(client: TestClient) -> None:
+    """_apply_pref：问 like 时 PREF_LIKE 排在 PREF_FACT 前。"""
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": PREF_LIKE},
+                {"role": "assistant", "timestamp": 1704067201000, "content": PREF_FACT},
+            ]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="What music do I like?"),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert PREF_LIKE in contents
+    assert PREF_FACT in contents
+    assert contents.index(PREF_LIKE) < contents.index(PREF_FACT)
+
+
+def test_search_entity_prefers_dana(client: TestClient) -> None:
+    """_apply_entity：问 Dana 时 DANA_WORK 排在 ALEX_WORK 前。"""
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": DANA_WORK},
+                {"role": "assistant", "timestamp": 1704067201000, "content": ALEX_WORK},
+            ]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Where does Dana work?"),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert DANA_WORK in contents
+    assert ALEX_WORK in contents
+    assert contents.index(DANA_WORK) < contents.index(ALEX_WORK)
+
+
+def test_search_update_sentence_ranks_above_old_fact(client: TestClient) -> None:
+    """_apply_update：纠错原话在「现在住哪」下排在旧陈述前。"""
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": LIVE_OLD}]
+        ),
+        headers=_auth(),
+    )
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:chunk-1",
+            messages=[
+                {"role": "user", "timestamp": 1704153600000, "content": LIVE_ACTUALLY}
+            ],
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Where do I live now?"),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert LIVE_ACTUALLY in contents
+    assert LIVE_OLD in contents
+    assert contents.index(LIVE_ACTUALLY) < contents.index(LIVE_OLD)
+
+
+def test_search_two_aspect_query_keeps_second_fact(client: TestClient) -> None:
+    """_cover_reorder：问句含两类事实时，第二类原话仍进 top_k=3。"""
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": TWO_HOP_A},
+                {"role": "assistant", "timestamp": 1704067201000, "content": TWO_HOP_B},
+                {"role": "user", "timestamp": 1704067202000, "content": TWO_HOP_C},
+            ]
+        ),
+        headers=_auth(),
+    )
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:conf",
+            session_id="eval:run:sample:conf",
+            messages=[
+                {"role": "user", "timestamp": 1704067203000, "content": TWO_HOP_D}
+            ],
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(
+            query="What is my cat's name and where was the conference?",
+            top_k=3,
+        ),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert TWO_HOP_D in contents

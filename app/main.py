@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from app.config import Settings
 from app.embeddings import build_embedder
 from app.logging_cfg import setup_logging
+from app.rerank import build_reranker
 from app.routers import health, memory
 from app.store import MemoryStore
 
@@ -19,7 +20,7 @@ logger = logging.getLogger("verbatim_mem")
 
 OPENAPI_TAGS = [
     {"name": "health", "description": "探活，不鉴权"},
-    {"name": "memory", "description": "Add 同步写入原文与向量；Search 为 FTS5 ∪ FAISS"},
+    {"name": "memory", "description": "Add 同步写入原文与向量；Search 为 FTS5 ∪ 邻句块 ∪ FAISS"},
 ]
 
 
@@ -37,6 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved.memory_db_path,
         embedder=embedder,
         retrieval_mode=resolved.memory_retrieval_mode,
+        reranker=build_reranker(resolved.memory_rerank_model),
     )
 
     @asynccontextmanager
@@ -87,6 +89,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         """RequestValidationError → 422 {"detail": "invalid request"}。"""
         return JSONResponse(status_code=422, content={"detail": "invalid request"})
+
+    @application.exception_handler(RuntimeError)
+    async def runtime_exception_handler(
+        _request: Request, _exc: RuntimeError
+    ) -> JSONResponse:
+        """RuntimeError（如 embedding 失败）→ 500 {"detail": "internal error"}。"""
+        logger.info("runtime_error status=500")
+        return JSONResponse(status_code=500, content={"detail": "internal error"})
 
     application.include_router(health.router)
     application.include_router(memory.router)

@@ -9,8 +9,10 @@ class Message(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     role: str = Field(min_length=1, description="user / assistant 等", examples=["user"])
-    timestamp: int = Field(description="毫秒时间戳", examples=[1704067200000])
-    content: str = Field(description="原话")
+    timestamp: int | None = Field(
+        default=None, description="毫秒时间戳，可缺省", examples=[1704067200000]
+    )
+    content: str = Field(max_length=100_000, description="原话")
 
 
 class AddRequest(BaseModel):
@@ -33,7 +35,9 @@ class AddRequest(BaseModel):
         description="会话 ID",
         examples=["eval:run:sample:0"],
     )
-    messages: list[Message] = Field(min_length=1, description="至少一条原话")
+    messages: list[Message] = Field(
+        min_length=1, max_length=500, description="至少一条原话"
+    )
 
 
 class AddResponse(BaseModel):
@@ -63,7 +67,7 @@ class SearchRequest(BaseModel):
     top_k: int = Field(default=100, ge=1, le=100, description="最多返回条数")
     options: list[str] | None = Field(
         default=None,
-        description="选择题选项；第一版忽略，官网多给不 422",
+        description="选择题选项；拼进 FTS/FAISS 查询并做字面加分",
     )
 
 
