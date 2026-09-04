@@ -13,8 +13,8 @@ from pathlib import Path
 
 import numpy as np
 
+from app.config import RetrievalConfig
 from app.embeddings import Embedder
-from app.rerank import Reranker
 from app.schemas import AddRequest, Message
 from app.vector_index import UserFaissIndex
 
@@ -93,31 +93,6 @@ _FTS_STOPWORDS = frozenset(
         "it",
     }
 )
-_SYN_GROUPS = (
-    ("name", "named", "called", "nickname", "names"),
-    ("live", "lives", "lived", "living", "home", "house", "apartment"),
-    ("move", "moved", "moving", "relocate", "relocated"),
-    ("work", "works", "worked", "working", "job", "jobs"),
-    ("like", "likes", "liked", "love", "loves", "prefer", "preferred", "favorite", "favourite"),
-    ("friend", "friends"),
-    ("wife", "husband", "spouse", "married"),
-    ("child", "children", "kid", "kids", "son", "daughter"),
-    ("pet", "pets"),
-    ("school", "college", "university"),
-    ("born", "birthday", "birth"),
-    ("eat", "ate", "eats", "eating", "food", "meal", "meals"),
-    ("brother", "sister", "sibling", "siblings"),
-    ("car", "cars", "drive", "drove", "driving"),
-    ("play", "plays", "played", "playing", "game", "games"),
-    ("travel", "trip", "trips", "flew", "visit", "visited"),
-    ("hometown", "hometowns"),
-)
-_SYN: dict[str, tuple[str, ...]] = {}
-for _group in _SYN_GROUPS:
-    for _token in _group:
-        _SYN[_token] = tuple(item for item in _group if item != _token)
-
-
 def _dedupe(items: list[str]) -> list[str]:
     """保序去重。"""
     seen: set[str] = set()
@@ -155,31 +130,17 @@ def _light_stems(token: str) -> list[str]:
     return [item for item in stems if item != token and len(item) >= 3]
 
 
-def _expand_synonyms(tokens: list[str]) -> list[str]:
-    """按 _SYN 展开，不含原词。"""
-    extra: list[str] = []
-    seen = set(tokens)
-    for token in tokens:
-        for other in _SYN.get(token, ()):
-            if other in seen:
-                continue
-            seen.add(other)
-            extra.append(other)
-    return extra
-
-
 def index_clues(text: str) -> str:
-    """messages.clues：_SYN 同义词 + _light_stems，写入 messages_fts.clues。"""
+    """messages.clues：对实词做 _light_stems，写入 messages_fts.clues。"""
     english = [token for token in _english_tokens(text) if token not in _FTS_STOPWORDS]
-    bag = _dedupe(english + _expand_synonyms(english))
-    extra: list[str] = list(_expand_synonyms(english))
-    for token in bag:
+    extra: list[str] = []
+    for token in english:
         extra.extend(_light_stems(token))
     return " ".join(_dedupe(extra))
 
 
 def fts_match_query(raw: str) -> str | None:
-    """问句收成 FTS5 MATCH：英文词+同义词+_light_stems，"token" OR token*。"""
+    """问句收成 FTS5 MATCH：英文词+_light_stems，"token" OR token*。"""
     english = _english_tokens(raw)
     keep = [token for token in english if token not in _FTS_STOPWORDS]
     use = keep or english
@@ -195,11 +156,10 @@ def fts_match_query(raw: str) -> str | None:
             pieces.append(f"{token}*")
         return len(pieces) >= FTS_CLAUSE_CAP
 
-    query_terms = _dedupe(use + _expand_synonyms(use))
     stemmed: list[str] = []
-    for token in query_terms:
+    for token in use:
         stemmed.extend(_light_stems(token))
-    for token in query_terms + _dedupe(stemmed):
+    for token in _dedupe(list(use) + stemmed):
         if _add(token, prefix=True):
             return " OR ".join(pieces)
     if not pieces:
@@ -216,17 +176,28 @@ RRF_K = 60
 RRF_W_FTS = 1.2
 RRF_W_DENSE = 1.0
 RRF_W_BLOCKS = 1.1
-RECALL_POOL_MIN = 30
-TIME_WEIGHT = 0.04
+TIME_WEIGHT = 0.0
 TIME_WEIGHT_TEMPORAL = 0.08
 LEXICAL_WEIGHT = 0.25
 NUMERIC_WEIGHT = 0.2
 ENTITY_WEIGHT = 0.22
 OPTION_WEIGHT = 0.18
-PREF_WEIGHT = 0.12
-UPDATE_WEIGHT = 0.08
-NEIGHBOR_WINDOW = 2
+NEIGHBOR_WINDOW = 1
 NEIGHBOR_SCORE_DELTA = 0.001
+_DEFAULT_RETRIEVAL = RetrievalConfig(
+    rrf_k=RRF_K,
+    rrf_w_fts=RRF_W_FTS,
+    rrf_w_dense=RRF_W_DENSE,
+    rrf_w_blocks=RRF_W_BLOCKS,
+    lexical_weight=LEXICAL_WEIGHT,
+    numeric_weight=NUMERIC_WEIGHT,
+    entity_weight=ENTITY_WEIGHT,
+    option_weight=OPTION_WEIGHT,
+    time_weight_temporal=TIME_WEIGHT_TEMPORAL,
+    neighbor_window=NEIGHBOR_WINDOW,
+    neighbor_score_delta=NEIGHBOR_SCORE_DELTA,
+)
+_SESSION_ORDER = "timestamp IS NULL, timestamp, source_order, created_at, id"
 FTS_CLAUSE_CAP = 48
 BLOCK_WIDTHS = (2, 3)
 VECTOR_META_MODEL = "embedding_identity"
@@ -263,50 +234,6 @@ _TEMPORAL_OLD_PHRASES = (
     "back then",
     "at the time",
 )
-_UPDATE_CUES = (
-    "actually",
-    "instead",
-    "i mean",
-    "turns out",
-    "never mind",
-    "wait no",
-    "i was wrong",
-    "to be clear",
-)
-_PREF_Q = frozenset(
-    {
-        "like",
-        "likes",
-        "liked",
-        "love",
-        "loves",
-        "prefer",
-        "preferred",
-        "favorite",
-        "favourite",
-        "enjoy",
-        "enjoys",
-        "enjoyed",
-        "hobby",
-        "hobbies",
-        "hate",
-        "hates",
-    }
-)
-_PREF_CUES = (
-    "i like",
-    "i love",
-    "i prefer",
-    "i enjoy",
-    "i hate",
-    "i always",
-    "my favorite",
-    "my favourite",
-    "i don't like",
-    "i do not like",
-    "i'm a fan",
-    "i am a fan",
-)
 
 
 def _span_if_contiguous(positions: list[int]) -> tuple[int, int] | None:
@@ -320,19 +247,16 @@ def _span_if_contiguous(positions: list[int]) -> tuple[int, int] | None:
     return lo, hi
 
 
-def _pool_k(top_k: int) -> int:
-    """Search 召回池：min(100, max(top_k * 2, RECALL_POOL_MIN))，供 FTS LIMIT / FAISS take / RRF。"""
-    return min(100, max(top_k * 2, RECALL_POOL_MIN))
-
-
-def _query_text(query: str, options: list[str] | None) -> str:
-    """query 拼上 SearchRequest.options，供 fts_match_query / encode_query。"""
+def _search_texts(query: str, options: list[str] | None) -> list[str]:
+    """query 一路，每个 SearchRequest.options 去前缀后再与 query 拼一路。"""
+    texts = [query]
     if not options:
-        return query
-    extra = " ".join(item for item in options if item)
-    if not extra.strip():
-        return query
-    return f"{query} {extra}"
+        return texts
+    for opt in options:
+        cleaned = _OPTION_PREFIX.sub("", opt).strip()
+        if cleaned:
+            texts.append(f"{query} {cleaned}")
+    return texts
 
 
 def _meaningful_tokens(raw: str) -> list[str]:
@@ -343,10 +267,9 @@ def _meaningful_tokens(raw: str) -> list[str]:
 
 
 def _lexical_token_set(raw: str) -> set[str]:
-    """_meaningful_tokens + _expand_synonyms + _light_stems。"""
+    """_meaningful_tokens + _light_stems。"""
     english = _meaningful_tokens(raw)
     tokens = set(english)
-    tokens.update(_expand_synonyms(english))
     extra: list[str] = []
     for token in tokens:
         extra.extend(_light_stems(token))
@@ -355,15 +278,15 @@ def _lexical_token_set(raw: str) -> set[str]:
 
 
 def _query_core(query: str, options: list[str] | None = None) -> list[str]:
-    """问句实词保序，作覆盖目标；不含同义词膨胀。"""
-    return _meaningful_tokens(_query_text(query, options))
+    """问句实词保序，作覆盖目标；不含 SearchRequest.options。"""
+    del options
+    return _meaningful_tokens(query)
 
 
 def _term_variants(term: str) -> set[str]:
-    """原词 + _light_stems + _SYN。"""
+    """原词 + _light_stems。"""
     variants = {term}
     variants.update(_light_stems(term))
-    variants.update(_expand_synonyms([term]))
     extra: list[str] = []
     for item in variants:
         extra.extend(_light_stems(item))
@@ -408,8 +331,10 @@ def _option_needles(options: list[str] | None) -> list[str]:
     return needles
 
 
-def _temporal_alpha(query: str) -> float:
-    """now / _TEMPORAL_NEW_PHRASES → +TIME_WEIGHT_TEMPORAL；previously / _TEMPORAL_OLD_PHRASES → 负值；同时出现偏新；否则 TIME_WEIGHT。"""
+def _temporal_alpha(
+    query: str, temporal_weight: float = TIME_WEIGHT_TEMPORAL
+) -> float:
+    """now / _TEMPORAL_NEW_PHRASES → +temporal_weight；previously / _TEMPORAL_OLD_PHRASES → 负值；同时出现偏新；否则 TIME_WEIGHT。"""
     lowered = query.lower()
     tokens = {token.lower() for token in _FTS_TOKEN.findall(query)}
     old = bool(tokens & _TEMPORAL_OLD_EN) or any(
@@ -419,68 +344,78 @@ def _temporal_alpha(query: str) -> float:
         phrase in lowered for phrase in _TEMPORAL_NEW_PHRASES
     )
     if old and not new:
-        return -TIME_WEIGHT_TEMPORAL
+        return -temporal_weight
     if new:
-        return TIME_WEIGHT_TEMPORAL
+        return temporal_weight
     return TIME_WEIGHT
 
 
 def _hit_from_row(row: sqlite3.Row, score: float) -> dict[str, object]:
-    """messages 行转内部 hit：id / content / score / created_at / timestamp / session_id。"""
-    ts = int(row["timestamp"])
+    """messages 行转内部 hit：id / content / score / created_at / timestamp / session_id / role / source_order。"""
+    raw_ts = row["timestamp"]
+    ts = int(raw_ts) if raw_ts is not None else None
+    keys = set(row.keys())
+    source_order = int(row["source_order"]) if "source_order" in keys else 0
+    role = str(row["role"]) if "role" in keys else None
     return {
         "id": row["id"],
         "content": row["content"],
         "score": score,
-        "created_at": ms_to_iso(ts),
+        "created_at": ms_to_iso(ts) if ts is not None else None,
         "timestamp": ts,
         "session_id": row["session_id"],
+        "role": role,
+        "source_order": source_order,
     }
 
 
 def _public_hit(hit: dict[str, object]) -> dict[str, object]:
-    """去掉内部 timestamp、session_id，只留 SearchItem 的 id / content / score / created_at。"""
+    """去掉内部 timestamp、session_id、source_order、rrf_score，只留 SearchItem。"""
     return {
         "id": hit["id"],
         "content": hit["content"],
         "score": hit["score"],
         "created_at": hit["created_at"],
+        "role": hit.get("role"),
     }
 
 
 def _apply_recency(
-    hits: list[dict[str, object]], query: str
+    hits: list[dict[str, object]],
+    query: str,
+    cfg: RetrievalConfig | None = None,
 ) -> list[dict[str, object]]:
-    """timestamp 在候选集内 min-max 为 rec；score 加 α * rec，不改写相关度。"""
+    """有时间意图时，timestamp 在候选集内 min-max 为 rec，score 加 α * rec；缺 timestamp 的 hit 不加。"""
     if not hits:
         return []
-    alpha = _temporal_alpha(query)
-    stamps = [int(hit["timestamp"]) for hit in hits]
-    min_ts = min(stamps)
-    max_ts = max(stamps)
+    weights = cfg or _DEFAULT_RETRIEVAL
+    alpha = _temporal_alpha(query, weights.time_weight_temporal)
+    dated = [
+        int(hit["timestamp"])
+        for hit in hits
+        if hit.get("timestamp") is not None
+    ]
+    min_ts = min(dated) if dated else 0
+    max_ts = max(dated) if dated else 0
     ts_span = max_ts - min_ts
     ranked: list[dict[str, object]] = []
     for hit in hits:
         item = dict(hit)
-        rec = 0.0 if ts_span == 0 else (int(hit["timestamp"]) - min_ts) / ts_span
-        item["score"] = float(hit["score"]) + alpha * rec
+        ts = hit.get("timestamp")
+        if alpha != 0.0 and ts is not None and ts_span > 0:
+            rec = (int(ts) - min_ts) / ts_span
+            item["score"] = float(hit["score"]) + alpha * rec
         ranked.append(item)
-    if alpha < 0:
-        ranked.sort(
-            key=lambda item: (
-                -float(item["score"]),
-                int(item["timestamp"]),
-                str(item["id"]),
-            )
-        )
-    else:
-        ranked.sort(
-            key=lambda item: (
-                -float(item["score"]),
-                -int(item["timestamp"]),
-                str(item["id"]),
-            )
-        )
+
+    def _tie(item: dict[str, object]) -> int:
+        ts = item.get("timestamp")
+        if ts is None or alpha == 0.0:
+            return 0
+        if alpha < 0:
+            return int(ts)
+        return -int(ts)
+
+    ranked.sort(key=lambda item: (-float(item["score"]), _tie(item), str(item["id"])))
     return ranked
 
 
@@ -488,18 +423,20 @@ def _apply_lexical(
     hits: list[dict[str, object]],
     query: str,
     options: list[str] | None,
+    cfg: RetrievalConfig | None = None,
 ) -> list[dict[str, object]]:
-    """按问句实词覆盖率加 LEXICAL_WEIGHT，content 侧用 _term_variants 对齐。"""
+    """按问句实词覆盖率加 lexical_weight，content 侧用 _term_variants 对齐。"""
     if not hits:
         return []
     core = _query_core(query, options)
     if not core:
         return hits
+    weight = (cfg or _DEFAULT_RETRIEVAL).lexical_weight
     ranked: list[dict[str, object]] = []
     for hit in hits:
         item = dict(hit)
         covered = _doc_query_cover(str(hit["content"]), set(core))
-        item["score"] = float(hit["score"]) + LEXICAL_WEIGHT * (len(covered) / len(core))
+        item["score"] = float(hit["score"]) + weight * (len(covered) / len(core))
         ranked.append(item)
     ranked.sort(key=lambda item: (-float(item["score"]), str(item["id"])))
     return ranked
@@ -509,19 +446,22 @@ def _apply_numeric(
     hits: list[dict[str, object]],
     query: str,
     options: list[str] | None,
+    cfg: RetrievalConfig | None = None,
 ) -> list[dict[str, object]]:
-    """query+options 与 content 的 _NUM_RE 数字有交集则 score 加 NUMERIC_WEIGHT。"""
+    """query 与 content 的 _NUM_RE 数字有交集则 score 加 numeric_weight。"""
+    del options
     if not hits:
         return []
-    qnums = set(_NUM_RE.findall(_query_text(query, options)))
+    qnums = set(_NUM_RE.findall(query))
     if not qnums:
         return hits
+    weight = (cfg or _DEFAULT_RETRIEVAL).numeric_weight
     ranked: list[dict[str, object]] = []
     for hit in hits:
         item = dict(hit)
         cnums = set(_NUM_RE.findall(str(hit["content"])))
         if qnums & cnums:
-            item["score"] = float(hit["score"]) + NUMERIC_WEIGHT
+            item["score"] = float(hit["score"]) + weight
         ranked.append(item)
     ranked.sort(key=lambda item: (-float(item["score"]), str(item["id"])))
     return ranked
@@ -531,19 +471,22 @@ def _apply_entity(
     hits: list[dict[str, object]],
     query: str,
     options: list[str] | None,
+    cfg: RetrievalConfig | None = None,
 ) -> list[dict[str, object]]:
-    """query/options 的 _proper_nouns 与 content 的 _english_tokens 有交集则加 ENTITY_WEIGHT。"""
+    """query 的 _proper_nouns 与 content 的 _english_tokens 有交集则加 entity_weight。"""
+    del options
     if not hits:
         return []
-    names = _proper_nouns(query, *(options or []))
+    names = _proper_nouns(query)
     if not names:
         return hits
+    weight = (cfg or _DEFAULT_RETRIEVAL).entity_weight
     ranked: list[dict[str, object]] = []
     for hit in hits:
         item = dict(hit)
         content_tokens = set(_english_tokens(str(hit["content"])))
         if names & content_tokens:
-            item["score"] = float(hit["score"]) + ENTITY_WEIGHT
+            item["score"] = float(hit["score"]) + weight
         ranked.append(item)
     ranked.sort(key=lambda item: (-float(item["score"]), str(item["id"])))
     return ranked
@@ -552,58 +495,21 @@ def _apply_entity(
 def _apply_options(
     hits: list[dict[str, object]],
     options: list[str] | None,
+    cfg: RetrievalConfig | None = None,
 ) -> list[dict[str, object]]:
-    """_option_needles 作为子串出现在 content 则加 OPTION_WEIGHT。"""
+    """_option_needles 作为子串出现在 content 则加 option_weight。"""
     if not hits:
         return []
     needles = _option_needles(options)
     if not needles:
         return hits
+    weight = (cfg or _DEFAULT_RETRIEVAL).option_weight
     ranked: list[dict[str, object]] = []
     for hit in hits:
         item = dict(hit)
         content = str(hit["content"]).lower()
         if any(needle in content for needle in needles):
-            item["score"] = float(hit["score"]) + OPTION_WEIGHT
-        ranked.append(item)
-    ranked.sort(key=lambda item: (-float(item["score"]), str(item["id"])))
-    return ranked
-
-
-def _apply_pref(
-    hits: list[dict[str, object]],
-    query: str,
-) -> list[dict[str, object]]:
-    """query 命中 _PREF_Q 且 content 含 _PREF_CUES 则加 PREF_WEIGHT。"""
-    if not hits:
-        return []
-    qtokens = set(_english_tokens(query))
-    if not (qtokens & _PREF_Q):
-        return hits
-    ranked: list[dict[str, object]] = []
-    for hit in hits:
-        item = dict(hit)
-        lowered = str(hit["content"]).lower()
-        if any(cue in lowered for cue in _PREF_CUES):
-            item["score"] = float(hit["score"]) + PREF_WEIGHT
-        ranked.append(item)
-    ranked.sort(key=lambda item: (-float(item["score"]), str(item["id"])))
-    return ranked
-
-
-def _apply_update(
-    hits: list[dict[str, object]],
-    query: str,
-) -> list[dict[str, object]]:
-    """问句不是偏旧时，content 含 _UPDATE_CUES 则加 UPDATE_WEIGHT。"""
-    if not hits or _temporal_alpha(query) < 0:
-        return hits
-    ranked: list[dict[str, object]] = []
-    for hit in hits:
-        item = dict(hit)
-        lowered = str(hit["content"]).lower()
-        if any(cue in lowered for cue in _UPDATE_CUES):
-            item["score"] = float(hit["score"]) + UPDATE_WEIGHT
+            item["score"] = float(hit["score"]) + weight
         ranked.append(item)
     ranked.sort(key=lambda item: (-float(item["score"]), str(item["id"])))
     return ranked
@@ -649,8 +555,9 @@ def _rrf_merge(
     hit_lists: list[list[dict[str, object]]],
     top_k: int,
     weights: tuple[float, ...] | None = None,
+    rrf_k: int = RRF_K,
 ) -> list[dict[str, object]]:
-    """多路按 weight/(RRF_K+rank) 合并去重，截断为 top_k。"""
+    """多路按 weight/(rrf_k+rank) 合并去重，截断为 top_k。"""
     if weights is None:
         weights = tuple(1.0 for _ in hit_lists)
     scores: dict[str, float] = {}
@@ -658,7 +565,7 @@ def _rrf_merge(
     for hits, weight in zip(hit_lists, weights, strict=True):
         for rank, hit in enumerate(hits, start=1):
             item_id = str(hit["id"])
-            scores[item_id] = scores.get(item_id, 0.0) + weight / (RRF_K + rank)
+            scores[item_id] = scores.get(item_id, 0.0) + weight / (rrf_k + rank)
             by_id.setdefault(item_id, hit)
     if not scores:
         return []
@@ -667,8 +574,10 @@ def _rrf_merge(
     for item_id in ordered:
         item = dict(by_id[item_id])
         item["score"] = scores[item_id]
+        item["rrf_score"] = scores[item_id]
         merged.append(item)
     return merged
+
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS requests (
@@ -685,16 +594,17 @@ CREATE TABLE IF NOT EXISTS messages (
     user_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
     role TEXT NOT NULL,
-    timestamp INTEGER NOT NULL,
+    timestamp INTEGER,
     content TEXT NOT NULL,
     clues TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
+    source_order INTEGER NOT NULL,
     FOREIGN KEY (request_id) REFERENCES requests(request_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_request_id ON messages(request_id);
-CREATE INDEX IF NOT EXISTS idx_messages_user_session ON messages(user_id, session_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_messages_user_session ON messages(user_id, session_id, timestamp, source_order);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     content,
@@ -765,13 +675,13 @@ class MemoryStore:
         db_path: str,
         embedder: Embedder,
         retrieval_mode: str = "hybrid",
-        reranker: Reranker | None = None,
+        retrieval: RetrievalConfig | None = None,
     ) -> None:
-        """绑定 MEMORY_DB_PATH、Embedder、MEMORY_RETRIEVAL_MODE、可选 Reranker。"""
+        """绑定 MEMORY_DB_PATH、Embedder、MEMORY_RETRIEVAL_MODE、RetrievalConfig。"""
         self.db_path = db_path
         self._embedder = embedder
         self.retrieval_mode = retrieval_mode.strip().lower() or "hybrid"
-        self._reranker = reranker
+        self.retrieval = retrieval or _DEFAULT_RETRIEVAL
         self._conn: sqlite3.Connection | None = None
         self._lock = threading.Lock()
         self._faiss: dict[str, UserFaissIndex] = {}
@@ -798,10 +708,11 @@ class MemoryStore:
         self._embedder.close()
 
     def init_schema(self) -> None:
-        """SCHEMA_SQL 后 _ensure_index_schema、_ensure_vector_meta、_backfill_vectors、_backfill_blocks、_rebuild_faiss。"""
+        """SCHEMA_SQL 后 _ensure_message_time_schema、_ensure_index_schema、_ensure_vector_meta、_backfill_vectors、_backfill_blocks、_rebuild_faiss。"""
         conn = self._require_conn()
         conn.executescript(SCHEMA_SQL)
-        self._ensure_index_schema()
+        rebuilt = self._ensure_message_time_schema()
+        self._ensure_index_schema(force_fts=rebuilt)
         self._ensure_vector_meta()
         self._backfill_vectors()
         self._backfill_blocks()
@@ -853,6 +764,15 @@ class MemoryStore:
                         return "duplicate"
                     conn.execute("ROLLBACK")
                     raise ConflictError()
+                source_base_row = conn.execute(
+                    """
+                    SELECT COALESCE(MAX(source_order), -1) AS max_order
+                    FROM messages
+                    WHERE user_id = ? AND session_id = ?
+                    """,
+                    (body.user_id, body.session_id),
+                ).fetchone()
+                source_base = int(source_base_row["max_order"]) if source_base_row else -1
                 conn.execute(
                     """
                     INSERT INTO requests (
@@ -871,8 +791,8 @@ class MemoryStore:
                     """
                     INSERT INTO messages (
                         id, request_id, user_id, session_id,
-                        role, timestamp, content, clues, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        role, timestamp, content, clues, created_at, source_order
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         (
@@ -881,10 +801,11 @@ class MemoryStore:
                             body.user_id,
                             body.session_id,
                             message.role,
-                            message.timestamp if message.timestamp is not None else 0,
+                            message.timestamp,
                             message.content,
                             index_clues(message.content),
                             now,
+                            source_base + 1 + index,
                         )
                         for index, message in enumerate(body.messages)
                     ],
@@ -916,44 +837,64 @@ class MemoryStore:
         top_k: int,
         options: list[str] | None = None,
     ) -> list[dict[str, object]]:
-        """该 user_id 下 FTS5 ∪ message_blocks_fts ∪ FAISS，加权 _rrf_merge 后字面/数字/专名/选项/人设/纠错加分、可选 Reranker、_apply_recency、_cover_reorder，再 _expand_neighbors(ranked[:top_k])。"""
-        pool_k = _pool_k(top_k)
-        search_text = _query_text(query, options)
-        query_vec: np.ndarray | None = None
+        """该 user_id 下 FTS5 ∪ message_blocks_fts ∪ FAISS 分路召回，加权 _rrf_merge 后字面/数字/专名/选项加分、_apply_recency、_cover_reorder，再 _compose_results。"""
+        cfg = self.retrieval
+        channels = _search_texts(query, options)
+        query_vecs: np.ndarray | None = None
         if self.retrieval_mode in {"dense", "hybrid"}:
-            query_vec = self._embedder.encode_query(search_text)
+            query_vecs = self._embedder.encode_docs(channels)
         with self._lock:
-            fts_hits: list[dict[str, object]] = []
-            block_hits: list[dict[str, object]] = []
-            dense_hits: list[dict[str, object]] = []
-            if self.retrieval_mode in {"fts", "hybrid"}:
-                fts_hits = self._search_fts(user_id, search_text, pool_k)
-                block_hits = self._search_blocks(user_id, search_text, pool_k)
-            if self.retrieval_mode in {"dense", "hybrid"}:
-                dense_hits = self._search_dense(user_id, query_vec, pool_k)
-            if self.retrieval_mode == "fts":
-                ranked = _rrf_merge(
-                    [fts_hits, block_hits], pool_k, (RRF_W_FTS, RRF_W_BLOCKS)
+            channel_rankings: list[list[dict[str, object]]] = []
+            for index, search_text in enumerate(channels):
+                qvec = None if query_vecs is None else query_vecs[index : index + 1]
+                channel_rankings.append(
+                    self._search_channel(user_id, search_text, qvec, cfg)
                 )
-            elif self.retrieval_mode == "dense":
-                ranked = dense_hits
+            if len(channel_rankings) == 1:
+                ranked = channel_rankings[0]
             else:
                 ranked = _rrf_merge(
-                    [fts_hits, dense_hits, block_hits],
-                    pool_k,
-                    (RRF_W_FTS, RRF_W_DENSE, RRF_W_BLOCKS),
+                    channel_rankings, cfg.candidate_pool, rrf_k=cfg.rrf_k
                 )
-            ranked = _apply_lexical(ranked, query, options)
-            ranked = _apply_numeric(ranked, query, options)
-            ranked = _apply_entity(ranked, query, options)
-            ranked = _apply_options(ranked, options)
-            ranked = _apply_pref(ranked, query)
-            ranked = _apply_update(ranked, query)
-            if self._reranker is not None:
-                ranked = self._reranker.rerank(search_text, ranked)
-            ranked = _apply_recency(ranked, query)
+            ranked = _apply_lexical(ranked, query, options, cfg)
+            ranked = _apply_numeric(ranked, query, options, cfg)
+            ranked = _apply_entity(ranked, query, options, cfg)
+            ranked = _apply_options(ranked, options, cfg)
+            ranked = _apply_recency(ranked, query, cfg)
             ranked = _cover_reorder(ranked, query)
-            return self._expand_neighbors(user_id, ranked[:top_k], top_k)
+            return self._compose_results(user_id, ranked, top_k)
+
+    def _search_channel(
+        self,
+        user_id: str,
+        search_text: str,
+        query_vec: np.ndarray | None,
+        cfg: RetrievalConfig,
+    ) -> list[dict[str, object]]:
+        """单路 search_text：FTS / blocks / dense 再 _rrf_merge 到 cfg.candidate_pool。"""
+        fts_hits: list[dict[str, object]] = []
+        block_hits: list[dict[str, object]] = []
+        dense_hits: list[dict[str, object]] = []
+        if self.retrieval_mode in {"fts", "hybrid"}:
+            fts_hits = self._search_fts(user_id, search_text, cfg.fts_pool)
+            block_hits = self._search_blocks(user_id, search_text, cfg.block_pool)
+        if self.retrieval_mode in {"dense", "hybrid"}:
+            dense_hits = self._search_dense(user_id, query_vec, cfg.dense_pool)
+        if self.retrieval_mode == "fts":
+            return _rrf_merge(
+                [fts_hits, block_hits],
+                cfg.candidate_pool,
+                (cfg.rrf_w_fts, cfg.rrf_w_blocks),
+                rrf_k=cfg.rrf_k,
+            )
+        if self.retrieval_mode == "dense":
+            return dense_hits[: cfg.candidate_pool]
+        return _rrf_merge(
+            [fts_hits, dense_hits, block_hits],
+            cfg.candidate_pool,
+            (cfg.rrf_w_fts, cfg.rrf_w_dense, cfg.rrf_w_blocks),
+            rrf_k=cfg.rrf_k,
+        )
 
     def _search_fts(
         self, user_id: str, query: str, top_k: int
@@ -969,6 +910,8 @@ class MemoryStore:
                 m.content,
                 m.timestamp,
                 m.session_id,
+                m.role,
+                m.source_order,
                 bm25(messages_fts) AS rank
             FROM messages_fts
             INNER JOIN messages AS m ON m.rowid = messages_fts.rowid
@@ -1059,7 +1002,7 @@ class MemoryStore:
         placeholders = ",".join("?" * len(ids))
         rows = conn.execute(
             f"""
-            SELECT id, content, timestamp, session_id
+            SELECT id, content, timestamp, session_id, role, source_order
             FROM messages
             WHERE user_id = ? AND id IN ({placeholders})
             """,
@@ -1074,19 +1017,22 @@ class MemoryStore:
             hits.append(_hit_from_row(row, score))
         return hits
 
-    def _expand_neighbors(
+    def _compose_results(
         self,
         user_id: str,
         hits: list[dict[str, object]],
         top_k: int,
     ) -> list[dict[str, object]]:
-        """同一 user_id、session_id，ORDER BY timestamp, id 取命中 ±NEIGHBOR_WINDOW；超 top_k 先丢邻句，再 _public_hit。"""
+        """先取 seed_k 条直接命中，再按 neighbor_budget / neighbor_window 补同 session 邻句，剩余槽位填其它命中。"""
         if not hits:
             return []
-        hit_ids = {str(hit["id"]) for hit in hits}
+        cfg = self.retrieval
+        seed_n = min(cfg.seed_k, top_k, len(hits))
+        seeds = hits[:seed_n]
+        seed_ids = {str(hit["id"]) for hit in seeds}
         session_ids: list[str] = []
         seen_sessions: set[str] = set()
-        for hit in hits:
+        for hit in seeds:
             session_id = str(hit.get("session_id") or "")
             if not session_id or session_id in seen_sessions:
                 continue
@@ -1099,10 +1045,10 @@ class MemoryStore:
             placeholders = ",".join("?" * len(session_ids))
             rows = conn.execute(
                 f"""
-                SELECT id, content, timestamp, session_id
+                SELECT id, content, timestamp, session_id, role, source_order
                 FROM messages
                 WHERE user_id = ? AND session_id IN ({placeholders})
-                ORDER BY session_id, timestamp, id
+                ORDER BY session_id, {_SESSION_ORDER}
                 """,
                 (user_id, *session_ids),
             ).fetchall()
@@ -1117,42 +1063,78 @@ class MemoryStore:
             for index, item_id in enumerate(ids):
                 index_of[item_id] = index
 
-        assembled: list[dict[str, object]] = []
-        seen: set[str] = set()
-        for hit in hits:
-            hit_id = str(hit["id"])
-            session_id = str(hit.get("session_id") or "")
+        budget = min(cfg.neighbor_budget, max(0, top_k - seed_n))
+        neighbor_queue: list[dict[str, object]] = []
+        seen_neighbors: set[str] = set()
+        window = max(0, cfg.neighbor_window)
+        for seed in seeds:
+            hit_id = str(seed["id"])
+            session_id = str(seed.get("session_id") or "")
             ids = order_by_session.get(session_id, [])
             idx = index_of.get(hit_id)
-            neighbor_ids: list[str] = []
-            if idx is not None:
-                for distance in range(1, NEIGHBOR_WINDOW + 1):
-                    if idx - distance >= 0:
-                        neighbor_ids.append(ids[idx - distance])
-                    if idx + distance < len(ids):
-                        neighbor_ids.append(ids[idx + distance])
+            if idx is None:
+                continue
+            for distance in range(1, window + 1):
+                candidates: list[str] = []
+                if idx - distance >= 0:
+                    candidates.append(ids[idx - distance])
+                if idx + distance < len(ids):
+                    candidates.append(ids[idx + distance])
+                for item_id in candidates:
+                    if item_id in seed_ids or item_id in seen_neighbors:
+                        continue
+                    seen_neighbors.add(item_id)
+                    neighbor = dict(by_id[item_id])
+                    neighbor["score"] = float(seed["score"]) - (
+                        cfg.neighbor_score_delta * distance
+                    )
+                    neighbor_queue.append(neighbor)
+
+        chosen_neighbors = neighbor_queue[:budget]
+        neighbor_ids = {str(hit["id"]) for hit in chosen_neighbors}
+        used = set(seed_ids) | neighbor_ids
+        leftover = top_k - seed_n - len(chosen_neighbors)
+        fillers: list[dict[str, object]] = []
+        for hit in hits[seed_n:]:
+            if leftover <= 0:
+                break
+            item_id = str(hit["id"])
+            if item_id in used:
+                continue
+            fillers.append(dict(hit))
+            used.add(item_id)
+            leftover -= 1
+
+        assembled: list[dict[str, object]] = []
+        seen: set[str] = set()
+        neighbor_by_id = {str(hit["id"]): hit for hit in chosen_neighbors}
+        for seed in seeds:
+            hit_id = str(seed["id"])
             if hit_id not in seen:
                 seen.add(hit_id)
-                assembled.append(dict(hit))
-            for item_id in neighbor_ids:
-                if item_id in seen:
-                    continue
-                neighbor = dict(by_id[item_id])
-                seen.add(item_id)
-                neighbor["score"] = float(hit["score"]) - NEIGHBOR_SCORE_DELTA
-                assembled.append(neighbor)
-
-        while len(assembled) > top_k:
-            drop_at = None
-            for i in range(len(assembled) - 1, -1, -1):
-                if str(assembled[i]["id"]) not in hit_ids:
-                    drop_at = i
-                    break
-            if drop_at is None:
-                assembled = assembled[:top_k]
-                break
-            assembled.pop(drop_at)
-        return [_public_hit(item) for item in assembled]
+                assembled.append(dict(seed))
+            session_id = str(seed.get("session_id") or "")
+            ids = order_by_session.get(session_id, [])
+            idx = index_of.get(hit_id)
+            if idx is None:
+                continue
+            for distance in range(1, window + 1):
+                candidates = []
+                if idx - distance >= 0:
+                    candidates.append(ids[idx - distance])
+                if idx + distance < len(ids):
+                    candidates.append(ids[idx + distance])
+                for item_id in candidates:
+                    if item_id in neighbor_by_id and item_id not in seen:
+                        seen.add(item_id)
+                        assembled.append(neighbor_by_id[item_id])
+        for hit in fillers:
+            item_id = str(hit["id"])
+            if item_id in seen:
+                continue
+            seen.add(item_id)
+            assembled.append(hit)
+        return [_public_hit(item) for item in assembled[:top_k]]
 
     def _fts_has_column(self, table: str, column: str) -> bool:
         """SELECT column FROM table LIMIT 0 能执行则为 True。"""
@@ -1163,14 +1145,14 @@ class MemoryStore:
             return False
         return True
 
-    def _ensure_index_schema(self) -> None:
-        """补 messages.clues、messages_fts.clues、message_blocks_fts.mid_id；clues 变了则重建 messages_fts。"""
+    def _ensure_index_schema(self, force_fts: bool = False) -> None:
+        """补 messages.clues、messages_fts.clues、message_blocks_fts.mid_id；clues 变了或 force_fts 则重建 messages_fts。"""
         conn = self._require_conn()
         cols = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
         if "clues" not in cols:
             conn.execute("ALTER TABLE messages ADD COLUMN clues TEXT NOT NULL DEFAULT ''")
         clues_changed = self._refresh_message_clues()
-        if clues_changed or not self._fts_has_column("messages_fts", "clues"):
+        if clues_changed or force_fts or not self._fts_has_column("messages_fts", "clues"):
             conn.execute("DROP TRIGGER IF EXISTS messages_ai")
             conn.execute("DROP TABLE IF EXISTS messages_fts")
             conn.execute(
@@ -1213,6 +1195,75 @@ class MemoryStore:
                 )
                 """
             )
+
+    def _ensure_message_time_schema(self) -> bool:
+        """messages.timestamp 可空，并保证 source_order；旧表重建后返回 True。"""
+        conn = self._require_conn()
+        cols = {row[1]: row for row in conn.execute("PRAGMA table_info(messages)")}
+        if not cols:
+            return False
+        if "clues" not in cols:
+            conn.execute("ALTER TABLE messages ADD COLUMN clues TEXT NOT NULL DEFAULT ''")
+            cols = {row[1]: row for row in conn.execute("PRAGMA table_info(messages)")}
+        timestamp_notnull = int(cols["timestamp"][3]) if "timestamp" in cols else 1
+        has_source_order = "source_order" in cols
+        if timestamp_notnull == 0 and has_source_order:
+            return False
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("DROP TRIGGER IF EXISTS messages_ai")
+        conn.execute("DROP TABLE IF EXISTS messages_migrate")
+        conn.execute(
+            """
+            CREATE TABLE messages_migrate (
+                id TEXT PRIMARY KEY,
+                request_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                timestamp INTEGER,
+                content TEXT NOT NULL,
+                clues TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL,
+                source_order INTEGER NOT NULL,
+                FOREIGN KEY (request_id) REFERENCES requests(request_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO messages_migrate (
+                id, request_id, user_id, session_id, role,
+                timestamp, content, clues, created_at, source_order
+            )
+            SELECT
+                id, request_id, user_id, session_id, role,
+                CASE WHEN timestamp = 0 THEN NULL ELSE timestamp END,
+                content,
+                COALESCE(clues, ''),
+                created_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY user_id, session_id
+                    ORDER BY timestamp, id
+                ) - 1
+            FROM messages
+            """
+        )
+        conn.execute("DROP TABLE messages")
+        conn.execute("ALTER TABLE messages_migrate RENAME TO messages")
+        conn.execute("DROP INDEX IF EXISTS idx_messages_user_id")
+        conn.execute("DROP INDEX IF EXISTS idx_messages_request_id")
+        conn.execute("DROP INDEX IF EXISTS idx_messages_user_session")
+        conn.execute("CREATE INDEX idx_messages_user_id ON messages(user_id)")
+        conn.execute("CREATE INDEX idx_messages_request_id ON messages(request_id)")
+        conn.execute(
+            """
+            CREATE INDEX idx_messages_user_session
+            ON messages(user_id, session_id, timestamp, source_order)
+            """
+        )
+        conn.execute("DROP TABLE IF EXISTS messages_fts")
+        conn.execute("PRAGMA foreign_keys=ON")
+        return True
 
     def _refresh_message_clues(self) -> bool:
         """按 messages.content 重算 index_clues 写回 clues；有改动返回 True。"""
@@ -1306,7 +1357,7 @@ class MemoryStore:
             SELECT id, content
             FROM messages
             WHERE user_id = ? AND session_id = ?
-            ORDER BY timestamp, id
+            ORDER BY timestamp IS NULL, timestamp, source_order, created_at, id
             """,
             (user_id, session_id),
         ).fetchall()

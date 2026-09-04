@@ -28,6 +28,11 @@ data/
 *.faiss
 *.index
 
+# 评测输出
+bench/reports/*
+!bench/reports/.gitkeep
+!bench/reports/v0.1-baseline.json
+
 # 操作系统与编辑器
 .DS_Store
 Thumbs.db

@@ -265,6 +265,7 @@ def test_search_returns_verbatim_immediately(client: TestClient) -> None:
     assert data[0]["content"] == SAMPLE_CONTENT
     assert data[0]["id"] == "eval:run:dataset:conv-0:chunk-0:0"
     assert data[0]["created_at"] == "2024-01-01T00:00:00Z"
+    assert data[0]["role"] == "user"
     assert isinstance(data[0]["score"], float)
     assert "Luna" in data[0]["content"]
     assert data[0]["content"] != "Luna"
@@ -373,7 +374,7 @@ def test_search_ignores_unknown_fields(client: TestClient) -> None:
     client.post("/add", json=_payload(), headers=_auth())
     response = client.post(
         "/search",
-        json=_search_body(options=["A. Luna", "B. Mars"], unexpected="field"),
+        json=_search_body(options=["A. Viton", "B. Nitrile"], unexpected="field"),
         headers=_auth(),
     )
     assert response.status_code == 200
@@ -417,7 +418,7 @@ def test_search_logs_omit_query_and_content(
     assert API_KEY not in text
 
 
-# --- Search：_apply_recency / _expand_neighbors ---
+# --- Search：_apply_recency / _compose_results ---
 
 OLD_CAT = "My cat is named Luna."
 NEW_CAT = "My cat is named Mars."
@@ -429,26 +430,32 @@ OTHER_SESSION_DECOY = "The weather is sunny."
 
 
 def test_search_prefers_newer_statement(client: TestClient, db_path: str) -> None:
-    """_apply_recency：新旧两句都在 data 里时新句更前；messages 仍两行。"""
+    """_apply_recency：query 含 now 时新旧两句都在 data 里且新句更前。"""
+    older = "The torque wrench lives in cabinet K7."
+    newer = "The torque wrench lives in cabinet P2."
     client.post("/add", json=_payload(messages=[
-        {"role": "user", "timestamp": 1704067200000, "content": OLD_CAT},
+        {"role": "user", "timestamp": 1704067200000, "content": older},
     ]), headers=_auth())
     client.post(
         "/add",
         json=_payload(
             request_id="eval:run:dataset:conv-0:chunk-1",
             messages=[
-                {"role": "user", "timestamp": 1704153600000, "content": NEW_CAT},
+                {"role": "user", "timestamp": 1704153600000, "content": newer},
             ],
         ),
         headers=_auth(),
     )
-    response = client.post("/search", json=_search_body(), headers=_auth())
+    response = client.post(
+        "/search",
+        json=_search_body(query="Where does the torque wrench live now?"),
+        headers=_auth(),
+    )
     assert response.status_code == 200
     contents = [item["content"] for item in response.json()["data"]]
-    assert NEW_CAT in contents
-    assert OLD_CAT in contents
-    assert contents.index(NEW_CAT) < contents.index(OLD_CAT)
+    assert newer in contents
+    assert older in contents
+    assert contents.index(newer) < contents.index(older)
     with sqlite3.connect(db_path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 2
 
@@ -481,7 +488,7 @@ def test_search_recency_does_not_outrank_unrelated(client: TestClient) -> None:
 
 
 def test_search_includes_session_neighbors(client: TestClient) -> None:
-    """_expand_neighbors：命中 ±1 且同 session。"""
+    """_compose_results：命中 ±1 且同 session。"""
     client.post(
         "/add",
         json=_payload(
@@ -506,7 +513,7 @@ def test_search_includes_session_neighbors(client: TestClient) -> None:
 
 
 def test_search_neighbors_skip_other_session(fts_client: TestClient) -> None:
-    """_expand_neighbors 的 SQL 带 session_id，不跨会话拼接。"""
+    """_compose_results 的 SQL 带 session_id，不跨会话拼接。"""
     fts_client.post(
         "/add",
         json=_payload(
@@ -575,7 +582,7 @@ NEIGHBOR_FAR_NEXT = "We bought a scratching post."
 
 
 def test_search_includes_plus_minus_two_neighbors(client: TestClient) -> None:
-    """_expand_neighbors：NEIGHBOR_WINDOW=2，命中 ±2 同 session。"""
+    """_compose_results：neighbor_window=1，±1 必在；±2 可由 message_blocks_fts 进入。"""
     client.post(
         "/add",
         json=_payload(
@@ -630,11 +637,13 @@ def test_search_top_k_three_keeps_hit_first(client: TestClient) -> None:
 
 
 def test_search_prefers_older_when_previously(client: TestClient) -> None:
-    """_temporal_alpha 负值：query 含 previously 时 OLD_CAT 排在 NEW_CAT 前。"""
+    """_temporal_alpha 负值：query 含 previously 时较旧陈述排在较新陈述前。"""
+    older = "The torque wrench lives in cabinet K7."
+    newer = "The torque wrench lives in cabinet P2."
     client.post(
         "/add",
         json=_payload(
-            messages=[{"role": "user", "timestamp": 1704067200000, "content": OLD_CAT}]
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": older}]
         ),
         headers=_auth(),
     )
@@ -642,25 +651,33 @@ def test_search_prefers_older_when_previously(client: TestClient) -> None:
         "/add",
         json=_payload(
             request_id="eval:run:dataset:conv-0:chunk-1",
-            messages=[{"role": "user", "timestamp": 1704153600000, "content": NEW_CAT}],
+            messages=[{"role": "user", "timestamp": 1704153600000, "content": newer}],
         ),
         headers=_auth(),
     )
     response = client.post(
         "/search",
-        json=_search_body(query="What was my cat named previously?"),
+        json=_search_body(query="Which cabinet was used previously?"),
         headers=_auth(),
     )
     assert response.status_code == 200
     contents = [item["content"] for item in response.json()["data"]]
-    assert OLD_CAT in contents
-    assert NEW_CAT in contents
-    assert contents.index(OLD_CAT) < contents.index(NEW_CAT)
+    assert older in contents
+    assert newer in contents
+    assert contents.index(older) < contents.index(newer)
 
 
 def test_search_options_boost_matching_content(client: TestClient) -> None:
-    """SearchRequest.options 含 Luna 时 SAMPLE_CONTENT 排在 Mars 句前。"""
-    client.post("/add", json=_payload(), headers=_auth())
+    """SearchRequest.options 含 Viton 时 Viton 句排在 Nitrile 句前。"""
+    viton = "The manifold uses a Viton gasket."
+    nitrile = "The pump uses a Nitrile gasket."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": viton}]
+        ),
+        headers=_auth(),
+    )
     client.post(
         "/add",
         json=_payload(
@@ -669,7 +686,7 @@ def test_search_options_boost_matching_content(client: TestClient) -> None:
                 {
                     "role": "user",
                     "timestamp": 1704067201000,
-                    "content": "I adopted a cat named Mars.",
+                    "content": nitrile,
                 }
             ],
         ),
@@ -678,22 +695,20 @@ def test_search_options_boost_matching_content(client: TestClient) -> None:
     response = client.post(
         "/search",
         json=_search_body(
-            query="What is the name of my cat?",
-            options=["A. Luna", "B. Rover"],
+            query="Which gasket material is stocked?",
+            options=["A. Viton", "B. EPDM"],
         ),
         headers=_auth(),
     )
     assert response.status_code == 200
     contents = [item["content"] for item in response.json()["data"]]
-    assert SAMPLE_CONTENT in contents
-    assert "I adopted a cat named Mars." in contents
-    assert contents.index(SAMPLE_CONTENT) < contents.index(
-        "I adopted a cat named Mars."
-    )
+    assert viton in contents
+    assert nitrile in contents
+    assert contents.index(viton) < contents.index(nitrile)
 
 
 def test_add_missing_timestamp_is_200(client: TestClient, db_path: str) -> None:
-    """Message.timestamp 缺省仍写入；messages.timestamp=0。"""
+    """Message.timestamp 缺省仍写入；messages.timestamp 为 NULL。"""
     body = _payload()
     del body["messages"][0]["timestamp"]
     response = client.post("/add", json=body, headers=_auth())
@@ -701,7 +716,7 @@ def test_add_missing_timestamp_is_200(client: TestClient, db_path: str) -> None:
     with sqlite3.connect(db_path) as conn:
         row = conn.execute("SELECT timestamp, content FROM messages").fetchone()
     assert row is not None
-    assert row[0] == 0
+    assert row[0] is None
     assert row[1] == SAMPLE_CONTENT
 
 
@@ -996,39 +1011,37 @@ def test_vectors_survive_reopen(db_path: str) -> None:
     assert response.json()["data"][0]["content"] == SAMPLE_CONTENT
 
 
-CALLED_CAT = "I have a cat called Luna."
-NAMED_DOG = "I also have a dog named Mars."
-MOVE_2019 = "I moved to Boston in 2019."
-MOVE_2021 = "I moved to Seattle in 2021."
-MULTI_A = "My coworker is named Dana."
-MULTI_B = "We went to a conference together."
-MULTI_C = "The conference was in Lisbon."
-
-
-def test_add_writes_clues_for_called(client: TestClient, db_path: str) -> None:
-    """index_clues：called → name 写入 messages.clues；Search content 仍是原话。"""
+def test_add_writes_stem_clues(client: TestClient, db_path: str) -> None:
+    """index_clues：working → work 写入 messages.clues；Search content 仍是原话。"""
+    content = "The widgets were working."
     client.post(
         "/add",
         json=_payload(
-            messages=[{"role": "user", "timestamp": 1704067200000, "content": CALLED_CAT}]
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": content}]
         ),
         headers=_auth(),
     )
     with sqlite3.connect(db_path) as conn:
         clues = conn.execute("SELECT clues FROM messages").fetchone()[0]
-    assert "name" in clues.split()
-    response = client.post("/search", json=_search_body(), headers=_auth())
+    assert "work" in clues.split()
+    response = client.post(
+        "/search",
+        json=_search_body(query="widgets"),
+        headers=_auth(),
+    )
     assert response.status_code == 200
-    assert response.json()["data"][0]["content"] == CALLED_CAT
-    assert "name" not in response.json()["data"][0]["content"].split()
+    assert response.json()["data"][0]["content"] == content
+    assert "work" not in response.json()["data"][0]["content"].split()
 
 
-def test_search_name_query_prefers_called_cat(client: TestClient) -> None:
-    """同义词 name/called：问猫名时 CALLED_CAT 排在 NAMED_DOG 前。"""
+def test_search_lexical_prefers_overlapping_token(client: TestClient) -> None:
+    """问句与其中一句共享稀有词时，该句排在另一句前。"""
+    viton = "The manifold uses a Viton gasket."
+    nitrile = "The pump uses a Nitrile gasket."
     client.post(
         "/add",
         json=_payload(
-            messages=[{"role": "user", "timestamp": 1704067200000, "content": CALLED_CAT}]
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": viton}]
         ),
         headers=_auth(),
     )
@@ -1036,171 +1049,119 @@ def test_search_name_query_prefers_called_cat(client: TestClient) -> None:
         "/add",
         json=_payload(
             request_id="eval:run:dataset:conv-0:chunk-1",
-            messages=[{"role": "user", "timestamp": 1704067201000, "content": NAMED_DOG}],
-        ),
-        headers=_auth(),
-    )
-    response = client.post("/search", json=_search_body(), headers=_auth())
-    assert response.status_code == 200
-    contents = [item["content"] for item in response.json()["data"]]
-    assert CALLED_CAT in contents
-    assert NAMED_DOG in contents
-    assert contents.index(CALLED_CAT) < contents.index(NAMED_DOG)
-
-
-def test_search_year_prefers_matching_move(client: TestClient) -> None:
-    """_apply_numeric：问 2021 时 MOVE_2021 排在较新的 MOVE_2019 句前。"""
-    client.post(
-        "/add",
-        json=_payload(
-            messages=[{"role": "user", "timestamp": 1704067200000, "content": MOVE_2021}]
-        ),
-        headers=_auth(),
-    )
-    client.post(
-        "/add",
-        json=_payload(
-            request_id="eval:run:dataset:conv-0:chunk-1",
-            messages=[{"role": "user", "timestamp": 1704153600000, "content": MOVE_2019}],
+            messages=[{"role": "user", "timestamp": 1704067201000, "content": nitrile}],
         ),
         headers=_auth(),
     )
     response = client.post(
         "/search",
-        json=_search_body(query="Where did I move in 2021?"),
+        json=_search_body(query="Which gasket is Viton?"),
         headers=_auth(),
     )
     assert response.status_code == 200
     contents = [item["content"] for item in response.json()["data"]]
-    assert MOVE_2021 in contents
-    assert MOVE_2019 in contents
-    assert contents.index(MOVE_2021) < contents.index(MOVE_2019)
+    assert viton in contents
+    assert nitrile in contents
+    assert contents.index(viton) < contents.index(nitrile)
+
+
+def test_search_year_prefers_matching_number(client: TestClient) -> None:
+    """_apply_numeric：问 2021 时含 2021 的句排在含 2019 的句前。"""
+    lot_2021 = "Batch lot 2021 passed inspection."
+    lot_2019 = "Batch lot 2019 passed inspection."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": lot_2021}]
+        ),
+        headers=_auth(),
+    )
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:chunk-1",
+            messages=[{"role": "user", "timestamp": 1704153600000, "content": lot_2019}],
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Which lot number is 2021?"),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    contents = [item["content"] for item in response.json()["data"]]
+    assert lot_2021 in contents
+    assert lot_2019 in contents
+    assert contents.index(lot_2021) < contents.index(lot_2019)
 
 
 def test_search_multihop_triple_window(client: TestClient) -> None:
-    """三句窗：Dana 与 Lisbon 分在首尾句时，两句都能进 data。"""
+    """三句窗：专名与地点分在首尾句时，两句都能进 data。"""
+    first = "Foreman Helix logged the shift."
+    middle = "They inspected the kiln together."
+    last = "The kiln sits in bay 4."
     client.post(
         "/add",
         json=_payload(
             messages=[
-                {"role": "user", "timestamp": 1704067200000, "content": MULTI_A},
-                {"role": "assistant", "timestamp": 1704067201000, "content": MULTI_B},
-                {"role": "user", "timestamp": 1704067202000, "content": MULTI_C},
+                {"role": "user", "timestamp": 1704067200000, "content": first},
+                {"role": "assistant", "timestamp": 1704067201000, "content": middle},
+                {"role": "user", "timestamp": 1704067202000, "content": last},
             ]
         ),
         headers=_auth(),
     )
     response = client.post(
         "/search",
-        json=_search_body(query="Where did Dana go to a conference?", top_k=5),
+        json=_search_body(query="Where is the kiln that Helix inspected?", top_k=5),
         headers=_auth(),
     )
     assert response.status_code == 200
     contents = [item["content"] for item in response.json()["data"]]
-    assert MULTI_A in contents
-    assert MULTI_C in contents
+    assert first in contents
+    assert last in contents
 
 
-PREF_LIKE = "I like jazz music."
-PREF_FACT = "Jazz originated in New Orleans."
-DANA_WORK = "Dana works in Lisbon."
-ALEX_WORK = "Alex works in Porto."
-LIVE_OLD = "I live in Boston."
-LIVE_ACTUALLY = "I actually live in Seattle instead."
-TWO_HOP_A = "I adopted a cat named Luna."
-TWO_HOP_B = "Luna is my cat."
-TWO_HOP_C = "My cat Luna likes tuna."
-TWO_HOP_D = "The conference was in Lisbon."
-
-
-def test_search_prefers_first_person_like(client: TestClient) -> None:
-    """_apply_pref：问 like 时 PREF_LIKE 排在 PREF_FACT 前。"""
+def test_search_entity_prefers_query_proper_noun(client: TestClient) -> None:
+    """_apply_entity：问 Helix 时含 Helix 的句排在含 Quorum 的句前。"""
+    helix = "Foreman Helix logged bay 4."
+    quorum = "Foreman Quorum logged bay 9."
     client.post(
         "/add",
         json=_payload(
             messages=[
-                {"role": "user", "timestamp": 1704067200000, "content": PREF_LIKE},
-                {"role": "assistant", "timestamp": 1704067201000, "content": PREF_FACT},
+                {"role": "user", "timestamp": 1704067200000, "content": helix},
+                {"role": "assistant", "timestamp": 1704067201000, "content": quorum},
             ]
         ),
         headers=_auth(),
     )
     response = client.post(
         "/search",
-        json=_search_body(query="What music do I like?"),
+        json=_search_body(query="Which bay did Helix log?"),
         headers=_auth(),
     )
     assert response.status_code == 200
     contents = [item["content"] for item in response.json()["data"]]
-    assert PREF_LIKE in contents
-    assert PREF_FACT in contents
-    assert contents.index(PREF_LIKE) < contents.index(PREF_FACT)
-
-
-def test_search_entity_prefers_dana(client: TestClient) -> None:
-    """_apply_entity：问 Dana 时 DANA_WORK 排在 ALEX_WORK 前。"""
-    client.post(
-        "/add",
-        json=_payload(
-            messages=[
-                {"role": "user", "timestamp": 1704067200000, "content": DANA_WORK},
-                {"role": "assistant", "timestamp": 1704067201000, "content": ALEX_WORK},
-            ]
-        ),
-        headers=_auth(),
-    )
-    response = client.post(
-        "/search",
-        json=_search_body(query="Where does Dana work?"),
-        headers=_auth(),
-    )
-    assert response.status_code == 200
-    contents = [item["content"] for item in response.json()["data"]]
-    assert DANA_WORK in contents
-    assert ALEX_WORK in contents
-    assert contents.index(DANA_WORK) < contents.index(ALEX_WORK)
-
-
-def test_search_update_sentence_ranks_above_old_fact(client: TestClient) -> None:
-    """_apply_update：纠错原话在「现在住哪」下排在旧陈述前。"""
-    client.post(
-        "/add",
-        json=_payload(
-            messages=[{"role": "user", "timestamp": 1704067200000, "content": LIVE_OLD}]
-        ),
-        headers=_auth(),
-    )
-    client.post(
-        "/add",
-        json=_payload(
-            request_id="eval:run:dataset:conv-0:chunk-1",
-            messages=[
-                {"role": "user", "timestamp": 1704153600000, "content": LIVE_ACTUALLY}
-            ],
-        ),
-        headers=_auth(),
-    )
-    response = client.post(
-        "/search",
-        json=_search_body(query="Where do I live now?"),
-        headers=_auth(),
-    )
-    assert response.status_code == 200
-    contents = [item["content"] for item in response.json()["data"]]
-    assert LIVE_ACTUALLY in contents
-    assert LIVE_OLD in contents
-    assert contents.index(LIVE_ACTUALLY) < contents.index(LIVE_OLD)
+    assert helix in contents
+    assert quorum in contents
+    assert contents.index(helix) < contents.index(quorum)
 
 
 def test_search_two_aspect_query_keeps_second_fact(client: TestClient) -> None:
     """_cover_reorder：问句含两类事实时，第二类原话仍进 top_k=3。"""
+    gasket = "The gasket SKU is NBR-4407."
+    shelf = "NBR-4407 sits on shelf D."
+    night = "Shelf D is locked at night."
+    kiln = "The kiln sits in bay 4."
     client.post(
         "/add",
         json=_payload(
             messages=[
-                {"role": "user", "timestamp": 1704067200000, "content": TWO_HOP_A},
-                {"role": "assistant", "timestamp": 1704067201000, "content": TWO_HOP_B},
-                {"role": "user", "timestamp": 1704067202000, "content": TWO_HOP_C},
+                {"role": "user", "timestamp": 1704067200000, "content": gasket},
+                {"role": "assistant", "timestamp": 1704067201000, "content": shelf},
+                {"role": "user", "timestamp": 1704067202000, "content": night},
             ]
         ),
         headers=_auth(),
@@ -1211,7 +1172,7 @@ def test_search_two_aspect_query_keeps_second_fact(client: TestClient) -> None:
             request_id="eval:run:dataset:conv-0:conf",
             session_id="eval:run:sample:conf",
             messages=[
-                {"role": "user", "timestamp": 1704067203000, "content": TWO_HOP_D}
+                {"role": "user", "timestamp": 1704067203000, "content": kiln}
             ],
         ),
         headers=_auth(),
@@ -1219,11 +1180,370 @@ def test_search_two_aspect_query_keeps_second_fact(client: TestClient) -> None:
     response = client.post(
         "/search",
         json=_search_body(
-            query="What is my cat's name and where was the conference?",
+            query="What is the gasket SKU and where is the kiln?",
             top_k=3,
         ),
         headers=_auth(),
     )
     assert response.status_code == 200
     contents = [item["content"] for item in response.json()["data"]]
-    assert TWO_HOP_D in contents
+    assert kiln in contents
+
+
+def test_search_missing_timestamp_omits_epoch(client: TestClient) -> None:
+    """messages.timestamp 为空时 SearchItem.created_at 为 null，正文不含 1970。"""
+    content = "The spare gasket SKU is NBR-4407."
+    body = _payload(
+        messages=[{"role": "user", "content": content}]
+    )
+    client.post("/add", json=body, headers=_auth())
+    response = client.post(
+        "/search",
+        json=_search_body(query="NBR-4407"),
+        headers=_auth(),
+    )
+    assert response.status_code == 200
+    item = response.json()["data"][0]
+    assert item["content"] == content
+    assert item["created_at"] is None
+    assert "1970" not in response.text
+
+
+def test_search_same_timestamp_keeps_add_order(client: TestClient, db_path: str) -> None:
+    """同一 timestamp 时 messages.source_order 与 Add 顺序一致。"""
+    first = "The inlet valve closed."
+    second = "The outlet valve opened."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": first},
+                {"role": "assistant", "timestamp": 1704067200000, "content": second},
+            ]
+        ),
+        headers=_auth(),
+    )
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT content, source_order FROM messages ORDER BY source_order, id"
+        ).fetchall()
+    assert [row[0] for row in rows] == [first, second]
+    assert [row[1] for row in rows] == [0, 1]
+
+
+def test_search_middle_insert_keeps_timestamp_order(client: TestClient, db_path: str) -> None:
+    """后写入中间 timestamp 后，同 session 邻句仍按 timestamp、source_order。"""
+    prev_msg = "The manifold was purged."
+    hit_msg = "The spare gasket SKU is NBR-4407."
+    next_msg = "Shelf D was relabeled."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": prev_msg},
+                {"role": "user", "timestamp": 1704067202000, "content": next_msg},
+            ]
+        ),
+        headers=_auth(),
+    )
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:chunk-1",
+            messages=[
+                {
+                    "role": "assistant",
+                    "timestamp": 1704067201000,
+                    "content": hit_msg,
+                }
+            ],
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="NBR-4407"),
+        headers=_auth(),
+    )
+    contents = [item["content"] for item in response.json()["data"]]
+    assert hit_msg in contents
+    assert prev_msg in contents
+    assert next_msg in contents
+    with sqlite3.connect(db_path) as conn:
+        ids = [
+            row[0]
+            for row in conn.execute(
+                "SELECT content FROM messages ORDER BY timestamp IS NULL, timestamp, source_order, id"
+            )
+        ]
+    assert ids == [prev_msg, hit_msg, next_msg]
+
+
+def test_search_order_survives_restart(db_path: str) -> None:
+    """重启 create_app 后 source_order 仍决定同 timestamp 顺序。"""
+    from app.config import Settings
+    from app.main import create_app
+
+    settings = Settings(
+        memory_api_key=API_KEY,
+        memory_db_path=db_path,
+        embedding_model="hash",
+        memory_retrieval_mode="fts",
+    )
+    prev_msg = "The manifold was purged."
+    hit_msg = "The spare gasket SKU is NBR-4407."
+    payload = _payload(
+        messages=[
+            {"role": "user", "timestamp": 1704067200000, "content": prev_msg},
+            {"role": "assistant", "timestamp": 1704067200000, "content": hit_msg},
+        ]
+    )
+    with TestClient(create_app(settings)) as first:
+        assert first.post("/add", json=payload, headers=_auth()).status_code == 200
+    with TestClient(create_app(settings)) as second:
+        response = second.post(
+            "/search",
+            json=_search_body(query="NBR-4407"),
+            headers=_auth(),
+        )
+    contents = [item["content"] for item in response.json()["data"]]
+    assert hit_msg in contents
+    assert prev_msg in contents
+
+
+def test_search_no_default_recency(client: TestClient) -> None:
+    """无时间意图时较新陈述不因 recency 排到较旧陈述前。"""
+    older = "The torque wrench lives in cabinet K7."
+    newer = "The torque wrench lives in cabinet P2."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": older}]
+        ),
+        headers=_auth(),
+    )
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:chunk-1",
+            messages=[{"role": "user", "timestamp": 1704153600000, "content": newer}],
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Where does the torque wrench live?"),
+        headers=_auth(),
+    )
+    contents = [item["content"] for item in response.json()["data"]]
+    assert older in contents
+    assert newer in contents
+    assert contents.index(older) < contents.index(newer)
+
+
+def test_search_specific_older_fact_not_overtaken_by_newer(client: TestClient) -> None:
+    """问句只覆盖旧事实时，较新的无关更新不得凭时间排到第一。"""
+    older = "The autoclave was calibrated in 2017."
+    newer = "The inlet gasket was replaced yesterday."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": older}]
+        ),
+        headers=_auth(),
+    )
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:chunk-1",
+            messages=[{"role": "user", "timestamp": 1704153600000, "content": newer}],
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="When was the autoclave calibrated?"),
+        headers=_auth(),
+    )
+    contents = [item["content"] for item in response.json()["data"]]
+    assert older in contents
+    assert contents[0] == older
+
+
+def test_search_before_prefers_older_statement(client: TestClient) -> None:
+    """query 含 before 时较旧陈述排在较新陈述前。"""
+    older = "The torque wrench lives in cabinet K7."
+    newer = "The torque wrench lives in cabinet P2."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": older}]
+        ),
+        headers=_auth(),
+    )
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:chunk-1",
+            messages=[{"role": "user", "timestamp": 1704153600000, "content": newer}],
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Where did the torque wrench live before?"),
+        headers=_auth(),
+    )
+    contents = [item["content"] for item in response.json()["data"]]
+    assert older in contents
+    assert newer in contents
+    assert contents.index(older) < contents.index(newer)
+
+
+def test_search_options_none_matches_plain_query(client: TestClient) -> None:
+    """options=None 时行为与无 options 字段相同，仍召回原话。"""
+    content = "The centrifuge rotor is rated 15000 rpm."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": content}]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="centrifuge rotor", options=None),
+        headers=_auth(),
+    )
+    assert response.json()["data"][0]["content"] == content
+
+
+def test_search_wrong_option_does_not_drown_evidence(client: TestClient) -> None:
+    """错误选项里的长关键词不把正确原话挤出 data。"""
+    evidence = "The spare gasket SKU is NBR-4407."
+    distractor = (
+        "The dual-stage rotary vane pump oil change schedule is posted on bay 3."
+    )
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": evidence}]
+        ),
+        headers=_auth(),
+    )
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:chunk-1",
+            messages=[
+                {
+                    "role": "user",
+                    "timestamp": 1704067201000,
+                    "content": distractor,
+                }
+            ],
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(
+            query="What is the spare gasket SKU?",
+            options=[
+                "A. NBR-4407",
+                "B. dual-stage rotary vane pump oil change schedule",
+            ],
+        ),
+        headers=_auth(),
+    )
+    contents = [item["content"] for item in response.json()["data"]]
+    assert evidence in contents
+    assert contents.index(evidence) < contents.index(distractor)
+
+
+def test_search_options_keep_both_choice_evidence(client: TestClient) -> None:
+    """多选项各自通道能同时召回两条独立原话。"""
+    cold = "The reagent must stay at minus eighty."
+    rotor = "The centrifuge rotor is rated 15000 rpm."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": cold},
+                {"role": "user", "timestamp": 1704067201000, "content": rotor},
+            ]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(
+            query="Which equipment ratings are recorded?",
+            options=["A. minus eighty", "B. 15000 rpm"],
+        ),
+        headers=_auth(),
+    )
+    contents = [item["content"] for item in response.json()["data"]]
+    assert cold in contents
+    assert rotor in contents
+
+
+def test_old_messages_schema_migrates_null_timestamp(db_path: str) -> None:
+    """旧 messages.timestamp NOT NULL 且为 0 时，_ensure_message_time_schema 写成 NULL。"""
+    from app.config import Settings
+    from app.main import create_app
+
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE requests (
+                request_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE TABLE messages (
+                id TEXT PRIMARY KEY,
+                request_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                clues TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY (request_id) REFERENCES requests(request_id)
+            );
+            CREATE INDEX idx_messages_user_session
+                ON messages(user_id, session_id, timestamp);
+            INSERT INTO requests VALUES ('r0', 'u0', 's0', 'hash', 1);
+            INSERT INTO messages VALUES (
+                'r0:0', 'r0', 'u0', 's0', 'user', 0,
+                'The spare gasket SKU is NBR-4407.', '', 1
+            );
+            """
+        )
+    settings = Settings(
+        memory_api_key=API_KEY,
+        memory_db_path=db_path,
+        embedding_model="hash",
+        memory_retrieval_mode="hybrid",
+    )
+    with TestClient(create_app(settings)) as client:
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT timestamp, source_order FROM messages"
+            ).fetchone()
+        assert row is not None
+        assert row[0] is None
+        assert row[1] == 0
+        response = client.post(
+            "/search",
+            json=_search_body(user_id="u0", query="NBR-4407"),
+            headers=_auth(),
+        )
+    assert response.status_code == 200
+    assert "1970" not in response.text
+    assert response.json()["data"][0]["created_at"] is None
+    assert response.json()["data"][0]["content"] == "The spare gasket SKU is NBR-4407."

@@ -1,0 +1,57 @@
+{
+  "version": "synthetic-v1",
+  "conversations": [
+    {
+      "request_id": "syn:u1:c0",
+      "user_id": "syn:u1",
+      "session_id": "syn:s1",
+      "messages": [
+        {"role": "user", "timestamp": 1704067200000, "content": "The autoclave was calibrated in 2017."},
+        {"role": "assistant", "timestamp": 1704067201000, "content": "Noted, I will file the certificate."},
+        {"role": "user", "timestamp": 1704153600000, "content": "The inlet valve was replaced in 2019."},
+        {"role": "user", "timestamp": 1704240000000, "content": "The torque wrench currently lives in cabinet P2."},
+        {"role": "user", "timestamp": 1704326400000, "content": "The spare gasket SKU is NBR-4407."},
+        {"role": "assistant", "timestamp": 1704326401000, "content": "NBR-4407 sits on shelf D."},
+        {"role": "user", "timestamp": 1704412800000, "content": "The reagent must stay at minus eighty."},
+        {"role": "user", "timestamp": 1704499200000, "content": "The centrifuge rotor is rated 15000 rpm."}
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "user_id": "syn:u1",
+      "query": "What is the spare gasket SKU?",
+      "options": ["A. NBR-4407", "B. EPDM-2201"],
+      "evidence": ["The spare gasket SKU is NBR-4407."]
+    },
+    {
+      "user_id": "syn:u1",
+      "query": "Where does the torque wrench live now?",
+      "evidence": ["The torque wrench currently lives in cabinet P2."]
+    },
+    {
+      "user_id": "syn:u1",
+      "query": "When was the autoclave calibrated?",
+      "evidence": ["The autoclave was calibrated in 2017."]
+    },
+    {
+      "user_id": "syn:u1",
+      "query": "Which valve was replaced in 2019?",
+      "evidence": ["The inlet valve was replaced in 2019."]
+    },
+    {
+      "user_id": "syn:u1",
+      "query": "At what temperature must the reagent stay?",
+      "evidence": ["The reagent must stay at minus eighty."]
+    },
+    {
+      "user_id": "syn:u1",
+      "query": "Which equipment ratings are recorded?",
+      "options": ["A. minus eighty", "B. 15000 rpm"],
+      "evidence": [
+        "The reagent must stay at minus eighty.",
+        "The centrifuge rotor is rated 15000 rpm."
+      ]
+    }
+  ]
+}

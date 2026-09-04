@@ -67,17 +67,20 @@ class SearchRequest(BaseModel):
     top_k: int = Field(default=100, ge=1, le=100, description="最多返回条数")
     options: list[str] | None = Field(
         default=None,
-        description="选择题选项；拼进 FTS/FAISS 查询并做字面加分",
+        description="选择题选项；每项与 query 分路召回后再融合",
     )
 
 
 class SearchItem(BaseModel):
-    """SearchResponse.data 一条：id / content / score / created_at。"""
+    """SearchResponse.data 一条：id / content / score / created_at / role。"""
 
     id: str
     content: str = Field(description="入库原话，不摘要、不答题")
     score: float
-    created_at: str = Field(description="对话时间，UTC ISO-8601")
+    created_at: str | None = Field(
+        default=None, description="messages.timestamp 的 UTC ISO-8601；缺省则为 null"
+    )
+    role: str | None = Field(default=None, description="messages.role")
 
 
 class SearchResponse(BaseModel):

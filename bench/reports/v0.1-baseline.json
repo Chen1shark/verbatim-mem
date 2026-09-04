@@ -1,0 +1,26 @@
+{
+  "version": "v0.1-baseline",
+  "git": "c394c89",
+  "pytest": "81 passed",
+  "embedding_model": "qwen3.7-text-embedding",
+  "embedding_dim": 2560,
+  "memory_retrieval_mode": "hybrid",
+  "memory_rerank_model": "",
+  "rrf_k": 60,
+  "rrf_w_fts": 1.2,
+  "rrf_w_dense": 1.0,
+  "rrf_w_blocks": 1.1,
+  "neighbor_window": 2,
+  "recall_pool": "min(100, max(top_k * 2, 30))",
+  "time_weight": 0.04,
+  "time_weight_temporal": 0.08,
+  "ranking": {
+    "lexical_weight": 0.25,
+    "numeric_weight": 0.2,
+    "entity_weight": 0.22,
+    "option_weight": 0.18,
+    "preference_weight": 0.12,
+    "update_weight": 0.08
+  },
+  "notes": "pytest -q at tag v0.1-baseline. No public Evidence Recall@100 in-repo."
+}

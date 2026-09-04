@@ -9,10 +9,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.config import Settings
+from app.config import RetrievalConfig, Settings
 from app.embeddings import build_embedder
 from app.logging_cfg import setup_logging
-from app.rerank import build_reranker
 from app.routers import health, memory
 from app.store import MemoryStore
 
@@ -38,7 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved.memory_db_path,
         embedder=embedder,
         retrieval_mode=resolved.memory_retrieval_mode,
-        reranker=build_reranker(resolved.memory_rerank_model),
+        retrieval=RetrievalConfig.from_settings(resolved),
     )
 
     @asynccontextmanager
@@ -53,7 +52,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application = FastAPI(
         title="verbatim-mem",
         description="AML Add/Search。SQLite 原文 + FTS5 ∪ FAISS，只交原话。",
-        version="0.1.0",
+        version="0.2.0",
         openapi_tags=OPENAPI_TAGS,
         lifespan=lifespan,
         swagger_ui_parameters={"persistAuthorization": True},
