@@ -1312,9 +1312,9 @@ def test_search_order_survives_restart(db_path: str) -> None:
 
 
 def test_search_no_default_recency(client: TestClient) -> None:
-    """无时间意图时较新陈述不因 recency 排到较旧陈述前。"""
-    older = "The torque wrench lives in cabinet K7."
-    newer = "The torque wrench lives in cabinet P2."
+    """direct_fact 问句不加 recency：较新同主题陈述不因时间排到较旧陈述前。"""
+    older = "The torque wrench inventory tag is TW-K7."
+    newer = "The torque wrench inventory tag is TW-P2."
     client.post(
         "/add",
         json=_payload(
@@ -1332,7 +1332,7 @@ def test_search_no_default_recency(client: TestClient) -> None:
     )
     response = client.post(
         "/search",
-        json=_search_body(query="Where does the torque wrench live?"),
+        json=_search_body(query="What is the torque wrench inventory tag?"),
         headers=_auth(),
     )
     contents = [item["content"] for item in response.json()["data"]]
@@ -1398,6 +1398,181 @@ def test_search_before_prefers_older_statement(client: TestClient) -> None:
     assert older in contents
     assert newer in contents
     assert contents.index(older) < contents.index(newer)
+
+
+def test_search_present_live_prefers_newer_statement(client: TestClient) -> None:
+    """classify_intent current_state：Where does X live 无 now 也偏新。"""
+    older = "The torque wrench lives in cabinet K7."
+    newer = "The torque wrench currently lives in cabinet P2."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[{"role": "user", "timestamp": 1704067200000, "content": older}]
+        ),
+        headers=_auth(),
+    )
+    client.post(
+        "/add",
+        json=_payload(
+            request_id="eval:run:dataset:conv-0:chunk-1",
+            messages=[{"role": "user", "timestamp": 1704153600000, "content": newer}],
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Where does the torque wrench live?"),
+        headers=_auth(),
+    )
+    contents = [item["content"] for item in response.json()["data"]]
+    assert newer in contents
+    assert older in contents
+    assert contents.index(newer) < contents.index(older)
+
+
+def test_search_where_do_i_live_now(client: TestClient) -> None:
+    """Where do I live now → 最新住址原话第一。"""
+    grew = "I grew up in Portland."
+    boston = "After college I lived in Boston."
+    seattle = "I now live in Seattle."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": grew},
+                {"role": "user", "timestamp": 1704153600000, "content": boston},
+                {"role": "user", "timestamp": 1704240000000, "content": seattle},
+            ]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Where do I live now?"),
+        headers=_auth(),
+    )
+    contents = [item["content"] for item in response.json()["data"]]
+    assert contents[0] == seattle
+    assert boston in contents
+    assert grew in contents
+
+
+def test_search_where_did_i_live_before(client: TestClient) -> None:
+    """Where did I live before → 历史住址排在最新住址前。"""
+    boston = "After college I lived in Boston."
+    seattle = "I now live in Seattle."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": boston},
+                {"role": "user", "timestamp": 1704153600000, "content": seattle},
+            ]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Where did I live before?"),
+        headers=_auth(),
+    )
+    contents = [item["content"] for item in response.json()["data"]]
+    assert boston in contents
+    assert seattle in contents
+    assert contents.index(boston) < contents.index(seattle)
+
+
+def test_search_grow_up_not_overtaken_by_move(client: TestClient) -> None:
+    """Where did I grow up 不被较新搬家句抢第一。"""
+    grew = "I grew up in Portland."
+    seattle = "I now live in Seattle."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": grew},
+                {"role": "user", "timestamp": 1704153600000, "content": seattle},
+            ]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Where did I grow up?"),
+        headers=_auth(),
+    )
+    contents = [item["content"] for item in response.json()["data"]]
+    assert contents[0] == grew
+    assert seattle in contents
+
+
+def test_search_update_cue_boosts_moved_sentence(client: TestClient) -> None:
+    """content 含 I actually moved 时该句排在无线索的旧住址前。"""
+    boston = "I lived in Boston."
+    moved = "I actually moved to Seattle last year."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": boston},
+                {"role": "user", "timestamp": 1704153600000, "content": moved},
+            ]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="Where do I live now?"),
+        headers=_auth(),
+    )
+    contents = [item["content"] for item in response.json()["data"]]
+    assert contents[0] == moved
+
+
+def test_search_preference_intent_boosts_first_person(client: TestClient) -> None:
+    """What music do I like → I like jazz 排在无关句前。"""
+    jazz = "I like jazz."
+    distractor = "The reagent must stay at minus eighty."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": distractor},
+                {"role": "user", "timestamp": 1704067201000, "content": jazz},
+            ]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="What music do I like?"),
+        headers=_auth(),
+    )
+    contents = [item["content"] for item in response.json()["data"]]
+    assert contents[0] == jazz
+
+
+def test_search_preference_not_applied_without_intent(client: TestClient) -> None:
+    """非 preference 问句不因 I like 句加分压过对口事实。"""
+    jazz = "I like jazz."
+    gasket = "The spare gasket SKU is NBR-4407."
+    client.post(
+        "/add",
+        json=_payload(
+            messages=[
+                {"role": "user", "timestamp": 1704067200000, "content": jazz},
+                {"role": "user", "timestamp": 1704067201000, "content": gasket},
+            ]
+        ),
+        headers=_auth(),
+    )
+    response = client.post(
+        "/search",
+        json=_search_body(query="What is the spare gasket SKU?"),
+        headers=_auth(),
+    )
+    contents = [item["content"] for item in response.json()["data"]]
+    assert contents[0] == gasket
 
 
 def test_search_options_none_matches_plain_query(client: TestClient) -> None:

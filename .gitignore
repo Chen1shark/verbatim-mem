@@ -25,13 +25,15 @@ htmlcov/
 data/
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 *.faiss
 *.index
 
-# 评测输出
+# 评测输出（保留 JSON 报告）
 bench/reports/*
 !bench/reports/.gitkeep
-!bench/reports/v0.1-baseline.json
+!bench/reports/*.json
 
 # 操作系统与编辑器
 .DS_Store

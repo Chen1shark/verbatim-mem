@@ -1,0 +1,187 @@
+{
+  "input": "bench\\fixtures\\hard-v1.json",
+  "runs": [
+    {
+      "name": "pool=100",
+      "candidate_pool": 100,
+      "metrics": {
+        "questions": 11,
+        "recall_at_100": 100.0,
+        "zero_hit_questions": 0,
+        "mean_first_rank": 1.6363636363636365,
+        "mean_returned": 91.0,
+        "duplicate_rate": 0.0,
+        "search_mean_ms": 11.744918185286224,
+        "search_p95_ms": 18.18970000022091,
+        "neighbor_extra_hits_mean": 0.0,
+        "neighbor_gold_gained": 0,
+        "neighbor_gold_lost": 0
+      },
+      "text": "Version: pool=100\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.64\nMean returned: 91.00\nDuplicate rate: 0.0000\nSearch mean: 11.74 ms\nSearch P95: 18.19 ms\nNeighbor extra hits mean: 0.00\nNeighbor gold gained: 0\nNeighbor gold lost: 0\n"
+    },
+    {
+      "name": "pool=300",
+      "candidate_pool": 300,
+      "metrics": {
+        "questions": 11,
+        "recall_at_100": 100.0,
+        "zero_hit_questions": 0,
+        "mean_first_rank": 1.6363636363636365,
+        "mean_returned": 91.0,
+        "duplicate_rate": 0.0,
+        "search_mean_ms": 18.515245457158677,
+        "search_p95_ms": 26.813599994056858,
+        "neighbor_extra_hits_mean": 0.0,
+        "neighbor_gold_gained": 0,
+        "neighbor_gold_lost": 0
+      },
+      "text": "Version: pool=300\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.64\nMean returned: 91.00\nDuplicate rate: 0.0000\nSearch mean: 18.52 ms\nSearch P95: 26.81 ms\nNeighbor extra hits mean: 0.00\nNeighbor gold gained: 0\nNeighbor gold lost: 0\n"
+    },
+    {
+      "name": "pool=500",
+      "candidate_pool": 500,
+      "metrics": {
+        "questions": 11,
+        "recall_at_100": 100.0,
+        "zero_hit_questions": 0,
+        "mean_first_rank": 1.6363636363636365,
+        "mean_returned": 91.0,
+        "duplicate_rate": 0.0,
+        "search_mean_ms": 16.01513636309061,
+        "search_p95_ms": 27.600350003922358,
+        "neighbor_extra_hits_mean": 0.0,
+        "neighbor_gold_gained": 0,
+        "neighbor_gold_lost": 0
+      },
+      "text": "Version: pool=500\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.64\nMean returned: 91.00\nDuplicate rate: 0.0000\nSearch mean: 16.02 ms\nSearch P95: 27.60 ms\nNeighbor extra hits mean: 0.00\nNeighbor gold gained: 0\nNeighbor gold lost: 0\n"
+    },
+    {
+      "name": "window=0",
+      "memory_neighbor_window": 0,
+      "metrics": {
+        "questions": 11,
+        "recall_at_100": 100.0,
+        "zero_hit_questions": 0,
+        "mean_first_rank": 1.4545454545454546,
+        "mean_returned": 91.0,
+        "duplicate_rate": 0.0,
+        "search_mean_ms": 16.332536361667074,
+        "search_p95_ms": 25.5996499909088,
+        "neighbor_extra_hits_mean": 0.0,
+        "neighbor_gold_gained": 0,
+        "neighbor_gold_lost": 0
+      },
+      "text": "Version: window=0\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.45\nMean returned: 91.00\nDuplicate rate: 0.0000\nSearch mean: 16.33 ms\nSearch P95: 25.60 ms\nNeighbor extra hits mean: 0.00\nNeighbor gold gained: 0\nNeighbor gold lost: 0\n"
+    },
+    {
+      "name": "window=1",
+      "memory_neighbor_window": 1,
+      "metrics": {
+        "questions": 11,
+        "recall_at_100": 100.0,
+        "zero_hit_questions": 0,
+        "mean_first_rank": 1.6363636363636365,
+        "mean_returned": 91.0,
+        "duplicate_rate": 0.0,
+        "search_mean_ms": 16.516190905928273,
+        "search_p95_ms": 27.89295000548009,
+        "neighbor_extra_hits_mean": 5.090909090909091,
+        "neighbor_gold_gained": 0,
+        "neighbor_gold_lost": 0
+      },
+      "text": "Version: window=1\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.64\nMean returned: 91.00\nDuplicate rate: 0.0000\nSearch mean: 16.52 ms\nSearch P95: 27.89 ms\nNeighbor extra hits mean: 5.09\nNeighbor gold gained: 0\nNeighbor gold lost: 0\n"
+    },
+    {
+      "name": "window=2",
+      "memory_neighbor_window": 2,
+      "metrics": {
+        "questions": 11,
+        "recall_at_100": 100.0,
+        "zero_hit_questions": 0,
+        "mean_first_rank": 1.8181818181818181,
+        "mean_returned": 91.0,
+        "duplicate_rate": 0.0,
+        "search_mean_ms": 16.938900003548373,
+        "search_p95_ms": 27.270050006336533,
+        "neighbor_extra_hits_mean": 7.818181818181818,
+        "neighbor_gold_gained": 0,
+        "neighbor_gold_lost": 0
+      },
+      "text": "Version: window=2\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.82\nMean returned: 91.00\nDuplicate rate: 0.0000\nSearch mean: 16.94 ms\nSearch P95: 27.27 ms\nNeighbor extra hits mean: 7.82\nNeighbor gold gained: 0\nNeighbor gold lost: 0\n"
+    },
+    {
+      "name": "intent_temporal=off",
+      "memory_intent_temporal": false,
+      "metrics": {
+        "questions": 11,
+        "recall_at_100": 100.0,
+        "zero_hit_questions": 0,
+        "mean_first_rank": 1.5454545454545454,
+        "mean_returned": 91.0,
+        "duplicate_rate": 0.0,
+        "search_mean_ms": 15.951681818643754,
+        "search_p95_ms": 23.351650015683845,
+        "neighbor_extra_hits_mean": 0.0,
+        "neighbor_gold_gained": 0,
+        "neighbor_gold_lost": 0
+      },
+      "text": "Version: intent_temporal=off\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.55\nMean returned: 91.00\nDuplicate rate: 0.0000\nSearch mean: 15.95 ms\nSearch P95: 23.35 ms\nNeighbor extra hits mean: 0.00\nNeighbor gold gained: 0\nNeighbor gold lost: 0\n"
+    },
+    {
+      "name": "intent_temporal=on",
+      "memory_intent_temporal": true,
+      "metrics": {
+        "questions": 11,
+        "recall_at_100": 100.0,
+        "zero_hit_questions": 0,
+        "mean_first_rank": 1.6363636363636365,
+        "mean_returned": 91.0,
+        "duplicate_rate": 0.0,
+        "search_mean_ms": 16.704500004627995,
+        "search_p95_ms": 26.50454999820795,
+        "neighbor_extra_hits_mean": 0.0,
+        "neighbor_gold_gained": 0,
+        "neighbor_gold_lost": 0
+      },
+      "text": "Version: intent_temporal=on\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.64\nMean returned: 91.00\nDuplicate rate: 0.0000\nSearch mean: 16.70 ms\nSearch P95: 26.50 ms\nNeighbor extra hits mean: 0.00\nNeighbor gold gained: 0\nNeighbor gold lost: 0\n"
+    },
+    {
+      "name": "pref=0.0-update=0.0",
+      "memory_preference_weight": 0.0,
+      "memory_update_weight": 0.0,
+      "metrics": {
+        "questions": 11,
+        "recall_at_100": 100.0,
+        "zero_hit_questions": 0,
+        "mean_first_rank": 1.5454545454545454,
+        "mean_returned": 91.0,
+        "duplicate_rate": 0.0,
+        "search_mean_ms": 17.93749090972018,
+        "search_p95_ms": 29.307800010428764,
+        "neighbor_extra_hits_mean": 0.0,
+        "neighbor_gold_gained": 0,
+        "neighbor_gold_lost": 0
+      },
+      "text": "Version: pref=0.0-update=0.0\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.55\nMean returned: 91.00\nDuplicate rate: 0.0000\nSearch mean: 17.94 ms\nSearch P95: 29.31 ms\nNeighbor extra hits mean: 0.00\nNeighbor gold gained: 0\nNeighbor gold lost: 0\n"
+    },
+    {
+      "name": "pref=0.12-update=0.08",
+      "memory_preference_weight": 0.12,
+      "memory_update_weight": 0.08,
+      "metrics": {
+        "questions": 11,
+        "recall_at_100": 100.0,
+        "zero_hit_questions": 0,
+        "mean_first_rank": 1.6363636363636365,
+        "mean_returned": 91.0,
+        "duplicate_rate": 0.0,
+        "search_mean_ms": 17.272336360871453,
+        "search_p95_ms": 25.58484999462962,
+        "neighbor_extra_hits_mean": 0.0,
+        "neighbor_gold_gained": 0,
+        "neighbor_gold_lost": 0
+      },
+      "text": "Version: pref=0.12-update=0.08\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.64\nMean returned: 91.00\nDuplicate rate: 0.0000\nSearch mean: 17.27 ms\nSearch P95: 25.58 ms\nNeighbor extra hits mean: 0.00\nNeighbor gold gained: 0\nNeighbor gold lost: 0\n"
+    }
+  ]
+}

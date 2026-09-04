@@ -1,4 +1,4 @@
-"""_temporal_alpha、_span_if_contiguous、fts_match_query、index_clues、_cover_reorder、_rrf_merge。"""
+"""_temporal_alpha、classify_intent、_span_if_contiguous、fts_match_query、index_clues、_cover_reorder、_rrf_merge。"""
 
 from app.store import (
     RRF_W_FTS,

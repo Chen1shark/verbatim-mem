@@ -1,4 +1,4 @@
-"""Settings：MEMORY_API_KEY、MEMORY_DB_PATH、embedding、MEMORY_RETRIEVAL_MODE、召回池与排序权重。"""
+"""Settings：MEMORY_API_KEY、MEMORY_DB_PATH、embedding、MEMORY_RETRIEVAL_MODE、召回池、ranking 权重、MEMORY_INTENT_TEMPORAL。"""
 
 from dataclasses import dataclass
 
@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """密钥、库路径、付费 embedding、召回模式、召回池与 ranking 权重。"""
+    """密钥、库路径、付费 embedding、召回模式、召回池、ranking 权重、MEMORY_INTENT_TEMPORAL。"""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     memory_entity_weight: float = 0.22
     memory_option_weight: float = 0.18
     memory_time_weight_temporal: float = 0.08
+    memory_preference_weight: float = 0.12
+    memory_update_weight: float = 0.08
+    memory_intent_temporal: bool = True
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,9 @@ class RetrievalConfig:
     entity_weight: float = 0.22
     option_weight: float = 0.18
     time_weight_temporal: float = 0.08
+    preference_weight: float = 0.12
+    update_weight: float = 0.08
+    intent_temporal: bool = True
     neighbor_score_delta: float = 0.001
 
     @classmethod
@@ -81,4 +87,7 @@ class RetrievalConfig:
             entity_weight=settings.memory_entity_weight,
             option_weight=settings.memory_option_weight,
             time_weight_temporal=settings.memory_time_weight_temporal,
+            preference_weight=settings.memory_preference_weight,
+            update_weight=settings.memory_update_weight,
+            intent_temporal=settings.memory_intent_temporal,
         )

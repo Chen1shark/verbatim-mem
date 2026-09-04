@@ -1,0 +1,18 @@
+{
+  "version": "v0.3-temporal",
+  "input": "bench\\fixtures\\hard-v1.json",
+  "metrics": {
+    "questions": 11,
+    "recall_at_100": 100.0,
+    "zero_hit_questions": 0,
+    "mean_first_rank": 1.6363636363636365,
+    "mean_returned": 91.0,
+    "duplicate_rate": 0.0,
+    "search_mean_ms": 15.84810909381221,
+    "search_p95_ms": 25.863399991067126,
+    "neighbor_extra_hits_mean": 0.0,
+    "neighbor_gold_gained": 0,
+    "neighbor_gold_lost": 0
+  },
+  "text": "Version: v0.3-temporal\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.64\nMean returned: 91.00\nDuplicate rate: 0.0000\nSearch mean: 15.85 ms\nSearch P95: 25.86 ms\nNeighbor extra hits mean: 0.00\nNeighbor gold gained: 0\nNeighbor gold lost: 0\n"
+}

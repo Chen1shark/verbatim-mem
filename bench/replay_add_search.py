@@ -14,6 +14,17 @@ from app.main import create_app
 API_KEY = "bench-key"
 
 
+def _remove_sqlite(path: Path) -> None:
+    """删除 path 及同名 -wal / -shm。"""
+    for suffix in ("", "-wal", "-shm"):
+        candidate = Path(str(path) + suffix) if suffix else path
+        if candidate.exists():
+            try:
+                candidate.unlink()
+            except OSError:
+                pass
+
+
 def load_eval(path: Path) -> dict[str, Any]:
     """读取 conversations / questions JSON。"""
     import json

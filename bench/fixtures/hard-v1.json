@@ -1,0 +1,906 @@
+{
+  "version": "hard-v1",
+  "conversations": [
+    {
+      "request_id": "hard:u1:home",
+      "user_id": "hard:u1",
+      "session_id": "hard:s-home",
+      "messages": [
+        {
+          "role": "user",
+          "timestamp": 1704067200000,
+          "content": "I grew up in Portland."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704067260000,
+          "content": "After college I lived in Boston."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704067320000,
+          "content": "I actually moved to Seattle last year."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704067380000,
+          "content": "I now live in Seattle."
+        }
+      ]
+    },
+    {
+      "request_id": "hard:u1:cat",
+      "user_id": "hard:u1",
+      "session_id": "hard:s-cat",
+      "messages": [
+        {
+          "role": "user",
+          "timestamp": 1704067800000,
+          "content": "I adopted a cat."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704067860000,
+          "content": "Her name is Luna."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704067920000,
+          "content": "She likes tuna."
+        }
+      ]
+    },
+    {
+      "request_id": "hard:u1:pref",
+      "user_id": "hard:u1",
+      "session_id": "hard:s-pref",
+      "messages": [
+        {
+          "role": "user",
+          "timestamp": 1704068400000,
+          "content": "I like jazz."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704068460000,
+          "content": "I do not like country music."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704068520000,
+          "content": "I love espresso."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704068580000,
+          "content": "My favorite mug is the blue one."
+        }
+      ]
+    },
+    {
+      "request_id": "hard:u1:lab",
+      "user_id": "hard:u1",
+      "session_id": "hard:s-lab",
+      "messages": [
+        {
+          "role": "user",
+          "timestamp": 1704069000000,
+          "content": "The autoclave was calibrated in 2017."
+        },
+        {
+          "role": "assistant",
+          "timestamp": 1704069060000,
+          "content": "Noted, I will file the certificate."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704069120000,
+          "content": "The inlet valve was replaced in 2019."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704069180000,
+          "content": "The torque wrench lives in cabinet K7."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704069240000,
+          "content": "The torque wrench currently lives in cabinet P2."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704069300000,
+          "content": "The spare gasket SKU is NBR-4407."
+        },
+        {
+          "role": "assistant",
+          "timestamp": 1704069360000,
+          "content": "NBR-4407 sits on shelf D."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704069420000,
+          "content": "The reagent must stay at minus eighty."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704069480000,
+          "content": "The centrifuge rotor is rated 15000 rpm."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704069540000,
+          "content": "The inlet gasket was replaced yesterday."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704069600000,
+          "content": "The torque wrench inventory tag is TW-K7."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704069660000,
+          "content": "The torque wrench inventory tag is TW-P2."
+        }
+      ]
+    },
+    {
+      "request_id": "hard:u1:noise",
+      "user_id": "hard:u1",
+      "session_id": "hard:s-noise",
+      "messages": [
+        {
+          "role": "user",
+          "timestamp": 1704073200000,
+          "content": "Work order W-2001 closed after the humidity check on rack 1."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704073260000,
+          "content": "Clipboard C-2 recorded a briefing in corridor 2."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704073320000,
+          "content": "The weekly log #3 for panel 3 listed voltage 213 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704073380000,
+          "content": "Shift 1 restocked gloves in bin B-4 for ticket T-4."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704073440000,
+          "content": "Dashboard node N-5 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704073500000,
+          "content": "Work order W-2006 closed after the humidity check on rack 6."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704073560000,
+          "content": "Clipboard C-7 recorded a briefing in corridor 7."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704073620000,
+          "content": "The weekly log #8 for panel 8 listed voltage 210 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704073680000,
+          "content": "Shift 0 restocked gloves in bin B-9 for ticket T-9."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704073740000,
+          "content": "Dashboard node N-10 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704073800000,
+          "content": "Work order W-2011 closed after the humidity check on rack 11."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704073860000,
+          "content": "Clipboard C-12 recorded a briefing in corridor 3."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704073920000,
+          "content": "The weekly log #13 for panel 2 listed voltage 215 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704073980000,
+          "content": "Shift 2 restocked gloves in bin B-14 for ticket T-14."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074040000,
+          "content": "Dashboard node N-15 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074100000,
+          "content": "Work order W-2016 closed after the humidity check on rack 16."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074160000,
+          "content": "Clipboard C-17 recorded a briefing in corridor 8."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074220000,
+          "content": "The weekly log #18 for panel 7 listed voltage 212 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074280000,
+          "content": "Shift 1 restocked gloves in bin B-19 for ticket T-19."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074340000,
+          "content": "Dashboard node N-20 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074400000,
+          "content": "Work order W-2021 closed after the humidity check on rack 4."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074460000,
+          "content": "Clipboard C-22 recorded a briefing in corridor 4."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074520000,
+          "content": "The weekly log #23 for panel 1 listed voltage 217 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074580000,
+          "content": "Shift 0 restocked gloves in bin B-4 for ticket T-24."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074640000,
+          "content": "Dashboard node N-25 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074700000,
+          "content": "Work order W-2026 closed after the humidity check on rack 9."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074760000,
+          "content": "Clipboard C-27 recorded a briefing in corridor 0."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074820000,
+          "content": "The weekly log #28 for panel 6 listed voltage 214 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074880000,
+          "content": "Shift 2 restocked gloves in bin B-9 for ticket T-29."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704074940000,
+          "content": "Dashboard node N-30 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075000000,
+          "content": "Work order W-2031 closed after the humidity check on rack 14."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075060000,
+          "content": "Clipboard C-32 recorded a briefing in corridor 5."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075120000,
+          "content": "The weekly log #33 for panel 0 listed voltage 211 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075180000,
+          "content": "Shift 1 restocked gloves in bin B-14 for ticket T-34."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075240000,
+          "content": "Dashboard node N-35 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075300000,
+          "content": "Work order W-2036 closed after the humidity check on rack 2."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075360000,
+          "content": "Clipboard C-37 recorded a briefing in corridor 1."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075420000,
+          "content": "The weekly log #38 for panel 5 listed voltage 216 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075480000,
+          "content": "Shift 0 restocked gloves in bin B-19 for ticket T-39."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075540000,
+          "content": "Dashboard node N-40 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075600000,
+          "content": "Work order W-2041 closed after the humidity check on rack 7."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075660000,
+          "content": "Clipboard C-42 recorded a briefing in corridor 6."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075720000,
+          "content": "The weekly log #43 for panel 10 listed voltage 213 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075780000,
+          "content": "Shift 2 restocked gloves in bin B-4 for ticket T-44."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075840000,
+          "content": "Dashboard node N-45 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075900000,
+          "content": "Work order W-2046 closed after the humidity check on rack 12."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704075960000,
+          "content": "Clipboard C-47 recorded a briefing in corridor 2."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076020000,
+          "content": "The weekly log #48 for panel 4 listed voltage 210 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076080000,
+          "content": "Shift 1 restocked gloves in bin B-9 for ticket T-49."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076140000,
+          "content": "Dashboard node N-50 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076200000,
+          "content": "Work order W-2051 closed after the humidity check on rack 0."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076260000,
+          "content": "Clipboard C-52 recorded a briefing in corridor 7."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076320000,
+          "content": "The weekly log #53 for panel 9 listed voltage 215 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076380000,
+          "content": "Shift 0 restocked gloves in bin B-14 for ticket T-54."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076440000,
+          "content": "Dashboard node N-55 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076500000,
+          "content": "Work order W-2056 closed after the humidity check on rack 5."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076560000,
+          "content": "Clipboard C-57 recorded a briefing in corridor 3."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076620000,
+          "content": "The weekly log #58 for panel 3 listed voltage 212 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076680000,
+          "content": "Shift 2 restocked gloves in bin B-19 for ticket T-59."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076740000,
+          "content": "Dashboard node N-60 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076800000,
+          "content": "Work order W-2061 closed after the humidity check on rack 10."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076860000,
+          "content": "Clipboard C-62 recorded a briefing in corridor 8."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076920000,
+          "content": "The weekly log #63 for panel 8 listed voltage 217 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704076980000,
+          "content": "Shift 1 restocked gloves in bin B-4 for ticket T-64."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077040000,
+          "content": "Dashboard node N-65 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077100000,
+          "content": "Work order W-2066 closed after the humidity check on rack 15."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077160000,
+          "content": "Clipboard C-67 recorded a briefing in corridor 4."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077220000,
+          "content": "The weekly log #68 for panel 2 listed voltage 214 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077280000,
+          "content": "Shift 0 restocked gloves in bin B-9 for ticket T-69."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077340000,
+          "content": "Dashboard node N-70 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077400000,
+          "content": "Work order W-2071 closed after the humidity check on rack 3."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077460000,
+          "content": "Clipboard C-72 recorded a briefing in corridor 0."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077520000,
+          "content": "The weekly log #73 for panel 7 listed voltage 211 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077580000,
+          "content": "Shift 2 restocked gloves in bin B-14 for ticket T-74."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077640000,
+          "content": "Dashboard node N-75 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077700000,
+          "content": "Work order W-2076 closed after the humidity check on rack 8."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077760000,
+          "content": "Clipboard C-77 recorded a briefing in corridor 5."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077820000,
+          "content": "The weekly log #78 for panel 1 listed voltage 216 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077880000,
+          "content": "Shift 1 restocked gloves in bin B-19 for ticket T-79."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704077940000,
+          "content": "Dashboard node N-80 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078000000,
+          "content": "Work order W-2081 closed after the humidity check on rack 13."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078060000,
+          "content": "Clipboard C-82 recorded a briefing in corridor 1."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078120000,
+          "content": "The weekly log #83 for panel 6 listed voltage 213 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078180000,
+          "content": "Shift 0 restocked gloves in bin B-4 for ticket T-84."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078240000,
+          "content": "Dashboard node N-85 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078300000,
+          "content": "Work order W-2086 closed after the humidity check on rack 1."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078360000,
+          "content": "Clipboard C-87 recorded a briefing in corridor 6."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078420000,
+          "content": "The weekly log #88 for panel 0 listed voltage 210 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078480000,
+          "content": "Shift 2 restocked gloves in bin B-9 for ticket T-89."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078540000,
+          "content": "Dashboard node N-90 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078600000,
+          "content": "Work order W-2091 closed after the humidity check on rack 6."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078660000,
+          "content": "Clipboard C-92 recorded a briefing in corridor 2."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078720000,
+          "content": "The weekly log #93 for panel 5 listed voltage 215 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078780000,
+          "content": "Shift 1 restocked gloves in bin B-14 for ticket T-94."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078840000,
+          "content": "Dashboard node N-95 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078900000,
+          "content": "Work order W-2096 closed after the humidity check on rack 11."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704078960000,
+          "content": "Clipboard C-97 recorded a briefing in corridor 7."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079020000,
+          "content": "The weekly log #98 for panel 10 listed voltage 212 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079080000,
+          "content": "Shift 0 restocked gloves in bin B-19 for ticket T-99."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079140000,
+          "content": "Dashboard node N-100 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079200000,
+          "content": "Work order W-2101 closed after the humidity check on rack 16."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079260000,
+          "content": "Clipboard C-102 recorded a briefing in corridor 3."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079320000,
+          "content": "The weekly log #103 for panel 4 listed voltage 217 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079380000,
+          "content": "Shift 2 restocked gloves in bin B-4 for ticket T-104."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079440000,
+          "content": "Dashboard node N-105 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079500000,
+          "content": "Work order W-2106 closed after the humidity check on rack 4."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079560000,
+          "content": "Clipboard C-107 recorded a briefing in corridor 8."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079620000,
+          "content": "The weekly log #108 for panel 9 listed voltage 214 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079680000,
+          "content": "Shift 1 restocked gloves in bin B-9 for ticket T-109."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079740000,
+          "content": "Dashboard node N-110 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079800000,
+          "content": "Work order W-2111 closed after the humidity check on rack 9."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079860000,
+          "content": "Clipboard C-112 recorded a briefing in corridor 4."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079920000,
+          "content": "The weekly log #113 for panel 3 listed voltage 211 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704079980000,
+          "content": "Shift 0 restocked gloves in bin B-14 for ticket T-114."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080040000,
+          "content": "Dashboard node N-115 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080100000,
+          "content": "Work order W-2116 closed after the humidity check on rack 14."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080160000,
+          "content": "Clipboard C-117 recorded a briefing in corridor 0."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080220000,
+          "content": "The weekly log #118 for panel 8 listed voltage 216 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080280000,
+          "content": "Shift 2 restocked gloves in bin B-19 for ticket T-119."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080340000,
+          "content": "Dashboard node N-120 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080400000,
+          "content": "Work order W-2121 closed after the humidity check on rack 2."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080460000,
+          "content": "Clipboard C-122 recorded a briefing in corridor 5."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080520000,
+          "content": "The weekly log #123 for panel 2 listed voltage 213 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080580000,
+          "content": "Shift 1 restocked gloves in bin B-4 for ticket T-124."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080640000,
+          "content": "Dashboard node N-125 rebooted after the firmware ping."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080700000,
+          "content": "Work order W-2126 closed after the humidity check on rack 7."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080760000,
+          "content": "Clipboard C-127 recorded a briefing in corridor 1."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080820000,
+          "content": "The weekly log #128 for panel 7 listed voltage 210 volts."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080880000,
+          "content": "Shift 0 restocked gloves in bin B-9 for ticket T-129."
+        },
+        {
+          "role": "user",
+          "timestamp": 1704080940000,
+          "content": "Dashboard node N-130 rebooted after the firmware ping."
+        }
+      ]
+    },
+    {
+      "request_id": "hard:u2:home",
+      "user_id": "hard:u2",
+      "session_id": "hard:s-u2",
+      "messages": [
+        {
+          "role": "user",
+          "timestamp": 1704097200000,
+          "content": "I now live in Chicago."
+        }
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "user_id": "hard:u1",
+      "query": "What is the spare gasket SKU?",
+      "options": [
+        "A. NBR-4407",
+        "B. EPDM-2201"
+      ],
+      "evidence": [
+        "The spare gasket SKU is NBR-4407."
+      ]
+    },
+    {
+      "user_id": "hard:u1",
+      "query": "When was the autoclave calibrated?",
+      "evidence": [
+        "The autoclave was calibrated in 2017."
+      ]
+    },
+    {
+      "user_id": "hard:u1",
+      "query": "Where does the torque wrench live?",
+      "evidence": [
+        "The torque wrench currently lives in cabinet P2."
+      ]
+    },
+    {
+      "user_id": "hard:u1",
+      "query": "Where do I live now?",
+      "evidence": [
+        "I now live in Seattle."
+      ]
+    },
+    {
+      "user_id": "hard:u1",
+      "query": "Where did I live before?",
+      "evidence": [
+        "After college I lived in Boston."
+      ]
+    },
+    {
+      "user_id": "hard:u1",
+      "query": "Where did I grow up?",
+      "evidence": [
+        "I grew up in Portland."
+      ]
+    },
+    {
+      "user_id": "hard:u1",
+      "query": "What music do I like?",
+      "evidence": [
+        "I like jazz."
+      ]
+    },
+    {
+      "user_id": "hard:u1",
+      "query": "What did I adopt and what is her name?",
+      "evidence": [
+        "I adopted a cat.",
+        "Her name is Luna."
+      ]
+    },
+    {
+      "user_id": "hard:u1",
+      "query": "Which equipment ratings are recorded?",
+      "options": [
+        "A. minus eighty",
+        "B. 15000 rpm"
+      ],
+      "evidence": [
+        "The reagent must stay at minus eighty.",
+        "The centrifuge rotor is rated 15000 rpm."
+      ]
+    },
+    {
+      "user_id": "hard:u1",
+      "query": "What is the torque wrench inventory tag?",
+      "evidence": [
+        "The torque wrench inventory tag is TW-K7."
+      ]
+    },
+    {
+      "user_id": "hard:u2",
+      "query": "Where do I live now?",
+      "evidence": [
+        "I now live in Chicago."
+      ]
+    }
+  ]
+}

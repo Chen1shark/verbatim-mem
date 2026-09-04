@@ -15,6 +15,16 @@ import numpy as np
 
 from app.config import RetrievalConfig
 from app.embeddings import Embedder
+from app.intent import (
+    CURRENT_STATE,
+    HISTORICAL_STATE,
+    PREFERENCE,
+    _TEMPORAL_NEW_EN,
+    _TEMPORAL_NEW_PHRASES,
+    _TEMPORAL_OLD_EN,
+    _TEMPORAL_OLD_PHRASES,
+    classify_intent,
+)
 from app.schemas import AddRequest, Message
 from app.vector_index import UserFaissIndex
 
@@ -182,6 +192,8 @@ LEXICAL_WEIGHT = 0.25
 NUMERIC_WEIGHT = 0.2
 ENTITY_WEIGHT = 0.22
 OPTION_WEIGHT = 0.18
+PREF_WEIGHT = 0.12
+UPDATE_WEIGHT = 0.08
 NEIGHBOR_WINDOW = 1
 NEIGHBOR_SCORE_DELTA = 0.001
 _DEFAULT_RETRIEVAL = RetrievalConfig(
@@ -194,6 +206,8 @@ _DEFAULT_RETRIEVAL = RetrievalConfig(
     entity_weight=ENTITY_WEIGHT,
     option_weight=OPTION_WEIGHT,
     time_weight_temporal=TIME_WEIGHT_TEMPORAL,
+    preference_weight=PREF_WEIGHT,
+    update_weight=UPDATE_WEIGHT,
     neighbor_window=NEIGHBOR_WINDOW,
     neighbor_score_delta=NEIGHBOR_SCORE_DELTA,
 )
@@ -201,38 +215,22 @@ _SESSION_ORDER = "timestamp IS NULL, timestamp, source_order, created_at, id"
 FTS_CLAUSE_CAP = 48
 BLOCK_WIDTHS = (2, 3)
 VECTOR_META_MODEL = "embedding_identity"
-_TEMPORAL_NEW_EN = frozenset(
-    {
-        "now",
-        "currently",
-        "already",
-        "latest",
-        "recently",
-        "anymore",
-        "nowadays",
-        "lately",
-        "still",
-    }
+_PREF_CONTENT = re.compile(
+    r"\b(i\s+(like|love|prefer|enjoy|hate|dislike)|my\s+favorite|i\s+don't\s+like|"
+    r"i\s+do\s+not\s+like)\b",
+    re.IGNORECASE,
 )
-_TEMPORAL_OLD_EN = frozenset(
-    {
-        "previous",
-        "previously",
-        "before",
-        "earlier",
-        "formerly",
-    }
-)
-_TEMPORAL_NEW_PHRASES = (
-    "right now",
-    "these days",
-    "as of now",
-)
-_TEMPORAL_OLD_PHRASES = (
-    "used to",
+_UPDATE_CUES = (
+    "actually",
+    "i moved",
+    "i've moved",
+    "i have moved",
+    "not anymore",
     "no longer",
-    "back then",
-    "at the time",
+    "i now live",
+    "i now work",
+    "correction",
+    "i was wrong",
 )
 
 
@@ -332,21 +330,31 @@ def _option_needles(options: list[str] | None) -> list[str]:
 
 
 def _temporal_alpha(
-    query: str, temporal_weight: float = TIME_WEIGHT_TEMPORAL
+    query: str,
+    temporal_weight: float = TIME_WEIGHT_TEMPORAL,
+    *,
+    intent_temporal: bool = True,
 ) -> float:
-    """now / _TEMPORAL_NEW_PHRASES → +temporal_weight；previously / _TEMPORAL_OLD_PHRASES → 负值；同时出现偏新；否则 TIME_WEIGHT。"""
-    lowered = query.lower()
-    tokens = {token.lower() for token in _FTS_TOKEN.findall(query)}
-    old = bool(tokens & _TEMPORAL_OLD_EN) or any(
-        phrase in lowered for phrase in _TEMPORAL_OLD_PHRASES
-    )
-    new = bool(tokens & _TEMPORAL_NEW_EN) or any(
-        phrase in lowered for phrase in _TEMPORAL_NEW_PHRASES
-    )
-    if old and not new:
-        return -temporal_weight
-    if new:
+    """classify_intent 为 current_state 时 +temporal_weight，historical_state 时为负；intent_temporal=False 时只认 _TEMPORAL_* 词。"""
+    if not intent_temporal:
+        lowered = query.lower()
+        tokens = {token.lower() for token in _FTS_TOKEN.findall(query)}
+        old = bool(tokens & _TEMPORAL_OLD_EN) or any(
+            phrase in lowered for phrase in _TEMPORAL_OLD_PHRASES
+        )
+        new = bool(tokens & _TEMPORAL_NEW_EN) or any(
+            phrase in lowered for phrase in _TEMPORAL_NEW_PHRASES
+        )
+        if old and not new:
+            return -temporal_weight
+        if new:
+            return temporal_weight
+        return TIME_WEIGHT
+    intent = classify_intent(query)
+    if intent == CURRENT_STATE:
         return temporal_weight
+    if intent == HISTORICAL_STATE:
+        return -temporal_weight
     return TIME_WEIGHT
 
 
@@ -370,7 +378,7 @@ def _hit_from_row(row: sqlite3.Row, score: float) -> dict[str, object]:
 
 
 def _public_hit(hit: dict[str, object]) -> dict[str, object]:
-    """去掉内部 timestamp、session_id、source_order、rrf_score，只留 SearchItem。"""
+    """去掉内部 timestamp、session_id、source_order、rrf_score、_origin，只留 SearchItem。"""
     return {
         "id": hit["id"],
         "content": hit["content"],
@@ -389,7 +397,11 @@ def _apply_recency(
     if not hits:
         return []
     weights = cfg or _DEFAULT_RETRIEVAL
-    alpha = _temporal_alpha(query, weights.time_weight_temporal)
+    alpha = _temporal_alpha(
+        query,
+        weights.time_weight_temporal,
+        intent_temporal=weights.intent_temporal,
+    )
     dated = [
         int(hit["timestamp"])
         for hit in hits
@@ -509,6 +521,58 @@ def _apply_options(
         item = dict(hit)
         content = str(hit["content"]).lower()
         if any(needle in content for needle in needles):
+            item["score"] = float(hit["score"]) + weight
+        ranked.append(item)
+    ranked.sort(key=lambda item: (-float(item["score"]), str(item["id"])))
+    return ranked
+
+
+def _apply_update(
+    hits: list[dict[str, object]],
+    query: str,
+    cfg: RetrievalConfig | None = None,
+) -> list[dict[str, object]]:
+    """content 含 _UPDATE_CUES：current_state 加 update_weight，historical_state 减 update_weight。"""
+    if not hits:
+        return []
+    intent = classify_intent(query)
+    weight = (cfg or _DEFAULT_RETRIEVAL).update_weight
+    if weight == 0.0:
+        return hits
+    if intent == HISTORICAL_STATE:
+        signed = -weight
+    elif intent == CURRENT_STATE:
+        signed = weight
+    else:
+        return hits
+    ranked: list[dict[str, object]] = []
+    for hit in hits:
+        item = dict(hit)
+        content = str(hit["content"]).lower()
+        if any(cue in content for cue in _UPDATE_CUES):
+            item["score"] = float(hit["score"]) + signed
+        ranked.append(item)
+    ranked.sort(key=lambda item: (-float(item["score"]), str(item["id"])))
+    return ranked
+
+
+def _apply_preference(
+    hits: list[dict[str, object]],
+    query: str,
+    cfg: RetrievalConfig | None = None,
+) -> list[dict[str, object]]:
+    """classify_intent 为 preference 且 content 匹配 _PREF_CONTENT 时加 preference_weight。"""
+    if not hits:
+        return []
+    if classify_intent(query) != PREFERENCE:
+        return hits
+    weight = (cfg or _DEFAULT_RETRIEVAL).preference_weight
+    if weight == 0.0:
+        return hits
+    ranked: list[dict[str, object]] = []
+    for hit in hits:
+        item = dict(hit)
+        if _PREF_CONTENT.search(str(hit["content"])):
             item["score"] = float(hit["score"]) + weight
         ranked.append(item)
     ranked.sort(key=lambda item: (-float(item["score"]), str(item["id"])))
@@ -837,7 +901,7 @@ class MemoryStore:
         top_k: int,
         options: list[str] | None = None,
     ) -> list[dict[str, object]]:
-        """该 user_id 下 FTS5 ∪ message_blocks_fts ∪ FAISS 分路召回，加权 _rrf_merge 后字面/数字/专名/选项加分、_apply_recency、_cover_reorder，再 _compose_results。"""
+        """该 user_id 下 FTS5 ∪ message_blocks_fts ∪ FAISS 分路召回，加权 _rrf_merge 后字面/数字/专名/选项/_apply_update/_apply_preference/_apply_recency、_cover_reorder，再 _compose_results。"""
         cfg = self.retrieval
         channels = _search_texts(query, options)
         query_vecs: np.ndarray | None = None
@@ -860,6 +924,8 @@ class MemoryStore:
             ranked = _apply_numeric(ranked, query, options, cfg)
             ranked = _apply_entity(ranked, query, options, cfg)
             ranked = _apply_options(ranked, options, cfg)
+            ranked = _apply_update(ranked, query, cfg)
+            ranked = _apply_preference(ranked, query, cfg)
             ranked = _apply_recency(ranked, query, cfg)
             ranked = _cover_reorder(ranked, query)
             return self._compose_results(user_id, ranked, top_k)
@@ -1088,6 +1154,7 @@ class MemoryStore:
                     neighbor["score"] = float(seed["score"]) - (
                         cfg.neighbor_score_delta * distance
                     )
+                    neighbor["_origin"] = "neighbor"
                     neighbor_queue.append(neighbor)
 
         chosen_neighbors = neighbor_queue[:budget]
@@ -1102,6 +1169,7 @@ class MemoryStore:
             if item_id in used:
                 continue
             fillers.append(dict(hit))
+            fillers[-1]["_origin"] = "filler"
             used.add(item_id)
             leftover -= 1
 
@@ -1112,7 +1180,9 @@ class MemoryStore:
             hit_id = str(seed["id"])
             if hit_id not in seen:
                 seen.add(hit_id)
-                assembled.append(dict(seed))
+                item = dict(seed)
+                item["_origin"] = "seed"
+                assembled.append(item)
             session_id = str(seed.get("session_id") or "")
             ids = order_by_session.get(session_id, [])
             idx = index_of.get(hit_id)

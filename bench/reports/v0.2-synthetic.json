@@ -1,0 +1,15 @@
+{
+  "version": "v0.2-retrieval-fix",
+  "input": "F:\\python-file\\verbatim-mem\\bench\\fixtures\\synthetic.json",
+  "metrics": {
+    "questions": 6,
+    "recall_at_100": 100.0,
+    "zero_hit_questions": 0,
+    "mean_first_rank": 1.0,
+    "mean_returned": 8.0,
+    "duplicate_rate": 0.0,
+    "search_mean_ms": 6.568349999724887,
+    "search_p95_ms": 9.3778000009479
+  },
+  "text": "Version: v0.2-retrieval-fix\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.00\nMean returned: 8.00\nDuplicate rate: 0.0000\nSearch mean: 6.57 ms\nSearch P95: 9.38 ms\n"
+}

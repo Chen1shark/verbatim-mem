@@ -1,0 +1,47 @@
+{
+  "input": "F:\\python-file\\verbatim-mem\\bench\\fixtures\\synthetic.json",
+  "runs": [
+    {
+      "candidate_pool": 100,
+      "metrics": {
+        "questions": 6,
+        "recall_at_100": 100.0,
+        "zero_hit_questions": 0,
+        "mean_first_rank": 1.0,
+        "mean_returned": 8.0,
+        "duplicate_rate": 0.0,
+        "search_mean_ms": 6.114850000206691,
+        "search_p95_ms": 8.372250013053417
+      },
+      "text": "Version: pool=100\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.00\nMean returned: 8.00\nDuplicate rate: 0.0000\nSearch mean: 6.11 ms\nSearch P95: 8.37 ms\n"
+    },
+    {
+      "candidate_pool": 300,
+      "metrics": {
+        "questions": 6,
+        "recall_at_100": 100.0,
+        "zero_hit_questions": 0,
+        "mean_first_rank": 1.0,
+        "mean_returned": 8.0,
+        "duplicate_rate": 0.0,
+        "search_mean_ms": 5.767883335162575,
+        "search_p95_ms": 7.343349985603709
+      },
+      "text": "Version: pool=300\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.00\nMean returned: 8.00\nDuplicate rate: 0.0000\nSearch mean: 5.77 ms\nSearch P95: 7.34 ms\n"
+    },
+    {
+      "candidate_pool": 500,
+      "metrics": {
+        "questions": 6,
+        "recall_at_100": 100.0,
+        "zero_hit_questions": 0,
+        "mean_first_rank": 1.0,
+        "mean_returned": 8.0,
+        "duplicate_rate": 0.0,
+        "search_mean_ms": 5.723083338428599,
+        "search_p95_ms": 6.6790749988285825
+      },
+      "text": "Version: pool=500\nRecall@100: 100.00%\nZero-hit questions: 0\nMean first rank: 1.00\nMean returned: 8.00\nDuplicate rate: 0.0000\nSearch mean: 5.72 ms\nSearch P95: 6.68 ms\n"
+    }
+  ]
+}
